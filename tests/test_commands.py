@@ -1,6 +1,7 @@
 from typer.testing import CliRunner
 
 from msmail.cli import app
+from msmail.core import doctor
 from msmail.core import drafts
 from msmail.core import mail
 
@@ -104,3 +105,41 @@ def test_draft_send_accepts_message_ranges(monkeypatch):
     assert loaded == [("draft-1", "me@example.com"), ("draft-2", "me@example.com")]
     assert sent == [("draft-1", "me@example.com"), ("draft-2", "me@example.com")]
     assert "2 draft(s) sent" in result.stdout
+
+
+def test_doctor_prints_report(monkeypatch):
+    monkeypatch.setattr(
+        doctor,
+        "check",
+        lambda account_email=None: doctor.DoctorReport(
+            ok=True,
+            lines=[
+                doctor.DoctorLine("Python", "OK", "3.12.0"),
+                doctor.DoctorLine("Account", "OK", "me@example.com"),
+            ],
+        ),
+    )
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "Python:" in result.stdout
+    assert "OK, 3.12.0" in result.stdout
+    assert "Account:" in result.stdout
+    assert "me@example.com" in result.stdout
+
+
+def test_doctor_json_exits_nonzero_for_errors(monkeypatch):
+    monkeypatch.setattr(
+        doctor,
+        "check",
+        lambda account_email=None: doctor.DoctorReport(
+            ok=False,
+            lines=[doctor.DoctorLine("Token", "ERROR", "expired")],
+        ),
+    )
+
+    result = runner.invoke(app, ["doctor", "--json"])
+
+    assert result.exit_code == 1
+    assert '"status": "ERROR"' in result.stdout

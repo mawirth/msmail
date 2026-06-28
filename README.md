@@ -41,6 +41,15 @@ Notable limitations:
 
 ## Installation
 
+For normal command-line use, `pipx` keeps `msmail` in its own virtual
+environment and exposes the `msmail` command on your `PATH`:
+
+```sh
+pipx install git+https://github.com/mawirth/msmail.git
+msmail --help
+msmail doctor
+```
+
 From a checkout:
 
 ```sh
@@ -131,6 +140,13 @@ Search:
 ```sh
 msmail search "invoice"
 msmail search "from:alice@example.com" --limit 10 --json
+```
+
+Check the local installation, active account, Graph access, OpenSSL and S/MIME
+files:
+
+```sh
+msmail doctor
 ```
 
 Manage stateful indices:
