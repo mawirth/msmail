@@ -83,7 +83,7 @@ def _email_address(value: dict[str, Any] | None) -> str:
 
 def _reject_unsupported(draft: compose.ComposeDraft) -> None:
     if draft.sign or draft.encrypt:
-        raise ValueError("Editing existing S/MIME drafts is not implemented; create a new signed/encrypted draft instead.")
+        raise ValueError("Drafts created with --sign or --encrypt are MIME drafts and cannot be edited; create a new signed/encrypted draft instead.")
 
 
 def _message_body_to_text(body: dict[str, Any]) -> str:
@@ -396,7 +396,9 @@ def compose_template_for_draft(reference: str, account_email: Optional[str] = No
     if not info.is_draft:
         raise ValueError("Refusing to edit: selected message is not a draft.")
     if info.has_attachments:
-        raise ValueError("Editing drafts with existing attachments is not implemented yet.")
+        attachments = mail.list_attachments(info.id, account_email=account.email)
+        if any(attachment.is_smime_signature or attachment.is_smime_encrypted for attachment in attachments):
+            raise ValueError("Drafts created with --sign or --encrypt are MIME drafts and cannot be edited; create a new signed/encrypted draft instead.")
 
     template = compose.compose_template(
         to=", ".join(info.to),

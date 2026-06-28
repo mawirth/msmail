@@ -125,6 +125,8 @@ def create(
     console.print(f"Subject: {result.subject}")
     if result.attachments:
         console.print(f"Attachments: {', '.join(result.attachments)}")
+    if draft.sign or draft.encrypt:
+        console.print("[yellow]This S/MIME MIME draft cannot be edited with draft edit; review before sending.[/yellow]")
 
 
 @app.command("edit")
@@ -150,7 +152,7 @@ def edit(
         if updated is None:
             console.print("[yellow]Draft not modified.[/yellow]")
             raise typer.Exit()
-        result = drafts.update_draft(info.id, updated, account_email=info.account)
+        result = drafts.update_draft(info.id, updated, account_email=info.account, include_signature=False)
     except compose.ComposeCancelled as exc:
         console.print(f"[yellow]{exc}[/yellow]")
         raise typer.Exit()

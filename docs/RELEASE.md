@@ -52,7 +52,10 @@ git push origin v0.1.0
 ## Known Limitations for 0.1.0
 
 - S/MIME reply/forward does not quote or attach the original message.
-- `draft edit` refuses drafts with attachments or S/MIME.
+- `draft edit` preserves existing normal attachments but cannot edit existing
+  S/MIME drafts.
+- S/MIME drafts created with `--sign` or `--encrypt` are readable but not
+  editable; review long messages before creating the S/MIME MIME draft.
 - OpenSSL temporary files are written under `/tmp`.
 - Graph `$search` behavior depends on Microsoft Graph mailbox search semantics.
 

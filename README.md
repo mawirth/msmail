@@ -33,7 +33,10 @@ Implemented:
 
 Notable limitations:
 
-- `draft edit` refuses existing attachments and S/MIME drafts.
+- `draft edit` preserves existing normal attachments but cannot edit existing
+  S/MIME drafts.
+- Review long messages before creating a draft with `--sign` or `--encrypt`;
+  those S/MIME MIME drafts can be read but not edited with `draft edit`.
 - S/MIME reply/forward creates a new MIME draft and does not yet quote the
   original message or include original attachments automatically.
 - Encrypted outgoing messages are uploaded as one complete MIME message. Large
@@ -200,6 +203,10 @@ msmail read 1 --decrypt --verify-smime
 msmail draft send 1
 ```
 
+S/MIME drafts created with `--sign` or `--encrypt` are stored as complete MIME
+drafts. Review and edit the message before adding those options; after creation
+they can be read and sent or deleted, but not edited with `draft edit`.
+
 For scripts, capture Graph IDs from JSON and operate on `--id`:
 
 ```sh
@@ -323,6 +330,9 @@ msmail draft create --to alice@example.com --subject "Both" --body "Hi" --sign -
 msmail reply 1 --body "Thanks." --sign --encrypt
 msmail forward 1 --to alice@example.com --body "FYI" --sign --encrypt
 ```
+
+Drafts created with `--sign` or `--encrypt` are complete MIME drafts. Create and
+edit the message as a normal draft first if you expect further revisions.
 
 Read and verify:
 

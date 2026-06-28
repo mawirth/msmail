@@ -121,7 +121,11 @@ def read_message(
         decrypted_body = None
         decrypted_body_type = None
         decrypted_attachments = None
-        if verify_smime or decrypt_smime:
+        mime_body = None
+        mime_body_type = None
+        mime_attachments = None
+        should_read_signed_mime = message.smime_signed and not message.smime_encrypted
+        if verify_smime or decrypt_smime or should_read_signed_mime:
             mime_bytes, mime_account = mail.get_message_mime(
                 resolved_id,
                 account_email=resolved_account,
@@ -150,12 +154,28 @@ def read_message(
                 mime_bytes,
                 account_email=mime_account,
             )
+            body_source = Path(smime_result.verified_path).read_bytes() if smime_result.verified else mime_bytes
+            mime_body, mime_body_type, mime_attachments = mime.body_from_mime(
+                body_source,
+                raw_html,
+            )
+        elif should_read_signed_mime:
+            mime_body, mime_body_type, mime_attachments = mime.body_from_mime(
+                mime_bytes,
+                raw_html,
+            )
     except (RuntimeError, ValueError, graph.GraphError) as exc:
         raise typer.BadParameter(str(exc)) from exc
 
     if json_output:
         data = asdict(message)
-        data["rendered_body"] = decrypted_body if decrypted_body is not None else _render_body(message, raw_html)
+        data["rendered_body"] = (
+            decrypted_body
+            if decrypted_body is not None
+            else mime_body
+            if mime_body is not None
+            else _render_body(message, raw_html)
+        )
         data["smime"] = _smime_metadata(message)
         if decrypt_result is not None:
             data["smime"].update(
@@ -182,6 +202,9 @@ def read_message(
         if decrypted_body is not None:
             data["decrypted_body_content_type"] = decrypted_body_type
             data["decrypted_attachment_names"] = decrypted_attachments or []
+        if mime_body is not None:
+            data["mime_body_content_type"] = mime_body_type
+            data["mime_attachment_names"] = mime_attachments or []
         console.print_json(json.dumps(data))
         return
 
@@ -198,5 +221,18 @@ def read_message(
             console.print(f"  - {attachment}")
         console.print("")
         console.print(decrypted_body)
+        return
+    if mime_body is not None:
+        console.print(f"[bold]From:[/bold] {message.from_name} <{message.from_address}>")
+        console.print(f"[bold]To:[/bold] {', '.join(message.to_addresses)}")
+        if message.cc_addresses:
+            console.print(f"[bold]Cc:[/bold] {', '.join(message.cc_addresses)}")
+        console.print(f"[bold]Date:[/bold] {message.received_date_time}")
+        console.print(f"[bold]Subject:[/bold] {message.subject}")
+        console.print(f"[bold]MIME attachments:[/bold] {len(mime_attachments or [])}")
+        for attachment in mime_attachments or []:
+            console.print(f"  - {attachment}")
+        console.print("")
+        console.print(mime_body)
         return
     _print_message(message, raw_html)

@@ -376,7 +376,7 @@ def test_create_draft_uploads_attachments(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("overrides", [{"sign": True}, {"encrypt": True}, {"sign": True, "encrypt": True}])
 def test_update_draft_rejects_smime_features(overrides):
-    with pytest.raises(ValueError, match="Editing existing S/MIME drafts"):
+    with pytest.raises(ValueError, match="cannot be edited"):
         drafts.update_draft("draft-id", make_draft(**overrides))
 
 
@@ -677,3 +677,141 @@ def test_create_encrypted_forward_uses_mime_draft(monkeypatch):
     assert captured["draft"].to == ["bob@example.com"]
     assert captured["draft"].subject == "Fwd: Status"
     assert captured["draft"].encrypt is True
+
+
+def test_compose_template_for_draft_allows_existing_normal_attachments(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(
+        drafts.mail,
+        "resolve_message_reference",
+        lambda reference, account_email=None: ("draft/id", "me@example.com"),
+    )
+    monkeypatch.setattr(
+        drafts.auth,
+        "get_access_token",
+        lambda account_email=None: ("token", Account()),
+    )
+
+    def get_json(path, access_token, params=None):
+        calls.append((path, access_token, params))
+        if path == "/me/messages/draft%2Fid":
+            return {
+                "id": "draft/id",
+                "subject": "Status",
+                "from": {"emailAddress": {"address": "me@example.com"}},
+                "toRecipients": [{"emailAddress": {"address": "alice@example.com"}}],
+                "ccRecipients": [],
+                "bccRecipients": [],
+                "body": {"contentType": "text", "content": "Done."},
+                "hasAttachments": True,
+                "isDraft": True,
+            }
+        if path == "/me/messages/draft%2Fid/attachments":
+            return {
+                "value": [
+                    {
+                        "@odata.type": "#microsoft.graph.fileAttachment",
+                        "id": "attachment-id",
+                        "name": "report.pdf",
+                        "contentType": "application/pdf",
+                        "size": 123,
+                        "isInline": False,
+                    }
+                ]
+            }
+        raise AssertionError(f"unexpected path: {path}")
+
+    monkeypatch.setattr(drafts.graph, "get_json", get_json)
+
+    template, info = drafts.compose_template_for_draft("1")
+
+    assert info.has_attachments is True
+    assert "Subject: Status" in template
+    assert "Attach:" in template
+    assert "report.pdf" not in template
+    assert calls[1][0] == "/me/messages/draft%2Fid/attachments"
+
+
+def test_compose_template_for_draft_rejects_existing_smime_attachment(monkeypatch):
+    monkeypatch.setattr(
+        drafts.mail,
+        "resolve_message_reference",
+        lambda reference, account_email=None: ("draft/id", "me@example.com"),
+    )
+    monkeypatch.setattr(
+        drafts.auth,
+        "get_access_token",
+        lambda account_email=None: ("token", Account()),
+    )
+
+    def get_json(path, access_token, params=None):
+        if path == "/me/messages/draft%2Fid":
+            return {
+                "id": "draft/id",
+                "subject": "Status",
+                "from": {"emailAddress": {"address": "me@example.com"}},
+                "toRecipients": [{"emailAddress": {"address": "alice@example.com"}}],
+                "ccRecipients": [],
+                "bccRecipients": [],
+                "body": {"contentType": "text", "content": "Done."},
+                "hasAttachments": True,
+                "isDraft": True,
+            }
+        if path == "/me/messages/draft%2Fid/attachments":
+            return {
+                "value": [
+                    {
+                        "@odata.type": "#microsoft.graph.fileAttachment",
+                        "id": "smime-id",
+                        "name": "smime.p7m",
+                        "contentType": "application/pkcs7-mime",
+                        "size": 123,
+                        "isInline": False,
+                    }
+                ]
+            }
+        raise AssertionError(f"unexpected path: {path}")
+
+    monkeypatch.setattr(drafts.graph, "get_json", get_json)
+
+    with pytest.raises(ValueError, match="cannot be edited"):
+        drafts.compose_template_for_draft("1")
+
+
+def test_update_draft_patches_body_without_removing_existing_attachments(monkeypatch):
+    attachment = []
+    patched = {}
+
+    monkeypatch.setattr(
+        drafts.auth,
+        "get_access_token",
+        lambda account_email=None: ("token", Account()),
+    )
+    monkeypatch.setattr(
+        drafts.graph,
+        "patch_json",
+        lambda path, access_token, body: patched.update({"path": path, "access_token": access_token, "body": body}),
+    )
+    monkeypatch.setattr(
+        drafts.graph,
+        "post_json",
+        lambda path, access_token, body: attachment.append((path, access_token, body)) or {"id": "new-attachment-id"},
+    )
+
+    result = drafts.update_draft("draft/id", make_draft(subject="Updated", body="Changed"), include_signature=False)
+
+    assert result.subject == "Updated"
+    assert result.attachments == []
+    assert attachment == []
+    assert patched == {
+        "path": "/me/messages/draft%2Fid",
+        "access_token": "token",
+        "body": {
+            "subject": "Updated",
+            "body": {"contentType": "Text", "content": "Changed"},
+            "toRecipients": [{"emailAddress": {"address": "alice@example.com"}}],
+            "ccRecipients": [],
+            "bccRecipients": [],
+        },
+    }

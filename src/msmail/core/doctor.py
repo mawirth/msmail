@@ -71,6 +71,10 @@ def _recipients_count(recipients_dir: str) -> int:
     return sum(1 for item in path.iterdir() if item.is_file() and item.suffix.lower() == ".pem")
 
 
+def _signature_path(account_email: str, suffix: str) -> Path:
+    return auth.account_dir(account_email) / f"signature.{suffix}"
+
+
 def check(account_email: Optional[str] = None) -> DoctorReport:
     lines = [
         DoctorLine("Python", "OK", sys.version.split()[0]),
@@ -126,8 +130,18 @@ def check(account_email: Optional[str] = None) -> DoctorReport:
         lines.append(DoctorLine("CA bundle", "SKIP", "no active account"))
         lines.append(DoctorLine("Recipients", "SKIP", "no active account"))
 
+    if active_account:
+        text_signature = _signature_path(active_account, "txt")
+        html_signature = _signature_path(active_account, "html")
+        lines.append(DoctorLine("Signature txt", "OK" if text_signature.exists() else "MISSING", str(text_signature)))
+        lines.append(DoctorLine("Signature html", "OK" if html_signature.exists() else "MISSING", str(html_signature)))
+    else:
+        lines.append(DoctorLine("Signature txt", "SKIP", "no active account"))
+        lines.append(DoctorLine("Signature html", "SKIP", "no active account"))
+
     temp_status, temp_detail = _temp_dir_status()
     lines.append(DoctorLine("Temp dir", temp_status, temp_detail))
 
-    ok = all(line.status in {"OK", "SKIP"} for line in lines)
+    optional_missing = {"Signature txt", "Signature html"}
+    ok = all(line.status in {"OK", "SKIP"} or line.name in optional_missing for line in lines)
     return DoctorReport(ok=ok, lines=lines)

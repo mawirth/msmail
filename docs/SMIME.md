@@ -50,6 +50,11 @@ Mail to the configured own account can use `own-cert.pem` automatically.
 
 ## Outgoing Mail
 
+S/MIME drafts created with `--sign` or `--encrypt` are complete MIME drafts.
+They can be read, sent or deleted, but they cannot be edited with
+`msmail draft edit`. Review long messages as normal drafts before creating the
+signed or encrypted final draft.
+
 Signed draft:
 
 ```sh
