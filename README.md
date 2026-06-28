@@ -142,6 +142,22 @@ Manage stateful indices:
   `15-20,1-5,7,10-12`.
 - Scripts should prefer `--id AAMk...`.
 
+## Range References
+
+Range references are intended for manual mailbox cleanup after a fresh
+`list`/`search`. They work for:
+
+```sh
+msmail draft send 1-3
+msmail mark 1-5,8 --read
+msmail move 15-20,1-5,7,10-12 --folder deleted
+msmail delete 1-4 --yes
+```
+
+Before a range operation asks for confirmation, `msmail` prints every affected
+message or draft with its original list index and subject. `--id` stays a
+single-item option for scripts.
+
 ## Typical Workflows
 
 Check new mail, read a message, save attachments and move it out of the inbox:

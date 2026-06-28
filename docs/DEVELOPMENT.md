@@ -71,7 +71,10 @@ Runtime state is intentionally outside the repository:
 ```
 
 `last-list.json` is the cache used for numeric references such as `msmail read
-1`. Scripts should use Graph IDs from `--json` instead.
+1`. `draft send`, `mark`, `move` and `delete` also support range references
+such as `1-4` or `15-20,1-5,7,10-12`; commands with confirmation print every
+affected item before continuing. Scripts should use Graph IDs from `--json`
+instead.
 
 ## Coding Notes
 
