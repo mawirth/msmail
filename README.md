@@ -138,6 +138,8 @@ Manage stateful indices:
 
 - Numeric references such as `1` refer to the most recent `list` or `search`
   result for the active account.
+- `mark`, `move` and `delete` also accept ranges such as `1-4` or
+  `15-20,1-5,7,10-12`.
 - Scripts should prefer `--id AAMk...`.
 
 ## Typical Workflows
@@ -244,10 +246,12 @@ attachments are embedded locally in the encrypted MIME message.
 
 ```sh
 msmail mark 1 --read
-msmail mark 1 --unread
+msmail mark 1-5,8 --unread
 msmail delete 1
+msmail delete 1-4 --yes
 msmail delete --id AAMkAG... --yes
 msmail move 1 --folder junk
+msmail move 15-20,1-5,7,10-12 --folder deleted
 msmail move 1 --folder deleted
 msmail folders
 msmail move --id AAMkAG... --folder-id AQMk...

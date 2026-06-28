@@ -17,8 +17,8 @@ console = Console()
 def mark_message(
     reference: Optional[str] = typer.Argument(
         None,
-        metavar="INDEX_OR_ID",
-        help="Message number from last list or Graph message ID.",
+        metavar="INDEX_RANGE_OR_ID",
+        help="Message number/range from last list or Graph message ID.",
     ),
     message_id: Optional[str] = typer.Option(None, "--id", help="Graph message ID."),
     read: bool = typer.Option(False, "--read", help="Mark message as read."),
@@ -32,20 +32,31 @@ def mark_message(
         raise typer.BadParameter("Use exactly one of --read or --unread.")
 
     try:
-        result = mail.mark_message(
+        resolved_ids, resolved_account = mail.resolve_message_references(
             message_id or reference or "",
-            is_read=read,
             account_email=account,
         )
+        results = [
+            mail.mark_message(
+                resolved_id,
+                is_read=read,
+                account_email=resolved_account,
+            )
+            for resolved_id in resolved_ids
+        ]
     except (ValueError, graph.GraphError) as exc:
         raise typer.BadParameter(str(exc)) from exc
 
     if json_output:
-        data = asdict(result)
-        data["is_read"] = read
-        console.print_json(json.dumps(data))
+        payload = []
+        for result in results:
+            data = asdict(result)
+            data["is_read"] = read
+            payload.append(data)
+        console.print_json(json.dumps(payload[0] if len(payload) == 1 else payload))
         return
 
     state = "read" if read else "unread"
-    console.print(f"[green]Message marked {state}.[/green]")
-    console.print(f"Subject: {result.subject}")
+    console.print(f"[green]{len(results)} message(s) marked {state}.[/green]")
+    if len(results) == 1:
+        console.print(f"Subject: {results[0].subject}")

@@ -259,6 +259,50 @@ def resolve_message_reference(reference: str, account_email: Optional[str] = Non
     return reference, account.email
 
 
+def resolve_message_references(reference: str, account_email: Optional[str] = None) -> tuple[list[str], str]:
+    access_token, account = auth.get_access_token(account_email)
+    del access_token
+
+    if not reference.strip():
+        raise ValueError("Message reference is empty.")
+    if not any(character in reference for character in ",-"):
+        message_id, resolved_account = resolve_message_reference(reference, account_email=account.email)
+        return [message_id], resolved_account
+
+    messages = load_last_list(account.email)
+    by_index = {message.index: message.id for message in messages}
+    resolved = []
+    seen = set()
+    for raw_part in reference.split(","):
+        part = raw_part.strip()
+        if not part:
+            raise ValueError(f"Invalid message range: {reference}")
+        if "-" in part:
+            start_text, end_text = [value.strip() for value in part.split("-", 1)]
+            if not start_text.isdigit() or not end_text.isdigit():
+                raise ValueError(f"Invalid message range part: {part}")
+            start = int(start_text)
+            end = int(end_text)
+            if start > end:
+                raise ValueError(f"Invalid descending message range: {part}")
+            indexes = range(start, end + 1)
+        else:
+            if not part.isdigit():
+                raise ValueError(f"Invalid message range part: {part}")
+            indexes = [int(part)]
+
+        for index in indexes:
+            try:
+                message_id = by_index[index]
+            except KeyError as exc:
+                raise ValueError(f"No message #{index} in last list.") from exc
+            if message_id not in seen:
+                resolved.append(message_id)
+                seen.add(message_id)
+
+    return resolved, account.email
+
+
 def _quote_odata_string(value: str) -> str:
     return value.replace("'", "''")
 

@@ -120,6 +120,38 @@ def test_remove_from_last_list_deletes_matching_message(monkeypatch, tmp_path):
     assert [message.id for message in remaining] == ["keep"]
 
 
+def test_resolve_message_references_accepts_ranges_and_deduplicates(monkeypatch, tmp_path):
+    monkeypatch.setattr(mail.auth, "account_dir", lambda account: tmp_path / account)
+    monkeypatch.setattr(
+        mail.auth,
+        "get_access_token",
+        lambda account_email=None: ("token", Account()),
+    )
+    mail.save_last_list(
+        "me@example.com",
+        [make_summary(index, f"id-{index}") for index in range(1, 8)],
+    )
+
+    ids, account = mail.resolve_message_references("3-5,1,4,7")
+
+    assert account == "me@example.com"
+    assert ids == ["id-3", "id-4", "id-5", "id-1", "id-7"]
+
+
+@pytest.mark.parametrize("reference", ["3-1", "1,a", "1-", ",1"])
+def test_resolve_message_references_rejects_invalid_ranges(monkeypatch, tmp_path, reference):
+    monkeypatch.setattr(mail.auth, "account_dir", lambda account: tmp_path / account)
+    monkeypatch.setattr(
+        mail.auth,
+        "get_access_token",
+        lambda account_email=None: ("token", Account()),
+    )
+    mail.save_last_list("me@example.com", [make_summary(1, "id-1")])
+
+    with pytest.raises(ValueError):
+        mail.resolve_message_references(reference)
+
+
 def test_delete_message_calls_graph_and_updates_last_list(monkeypatch, tmp_path):
     deleted = {}
     monkeypatch.setattr(mail.auth, "account_dir", lambda account: tmp_path / account)

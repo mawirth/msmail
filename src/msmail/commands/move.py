@@ -18,8 +18,8 @@ console = Console()
 def move_message(
     reference: Optional[str] = typer.Argument(
         None,
-        metavar="INDEX_OR_ID",
-        help="Message number from last list or Graph message ID.",
+        metavar="INDEX_RANGE_OR_ID",
+        help="Message number/range from last list or Graph message ID.",
     ),
     folder: Optional[str] = typer.Option(None, "--folder", "-f", help="Destination folder alias."),
     folder_id: Optional[str] = typer.Option(None, "--folder-id", help="Destination Graph mailFolder ID."),
@@ -37,37 +37,46 @@ def move_message(
 
     try:
         normalized_folder = folder_id or mail.normalize_folder(folder or "")
-        selected = message_id or reference or ""
-        resolved_id, resolved_account = mail.resolve_message_reference(
-            selected,
+        resolved_ids, resolved_account = mail.resolve_message_references(
+            message_id or reference or "",
             account_email=account,
         )
-        preview = mail.get_message(resolved_id, account_email=resolved_account)
+        previews = [mail.get_message(resolved_id, account_email=resolved_account) for resolved_id in resolved_ids]
     except (ValueError, graph.GraphError) as exc:
         raise typer.BadParameter(str(exc)) from exc
 
     if not json_output:
-        console.print("[bold]Message ready to move[/bold]")
-        console.print(f"From: {preview.from_address}")
-        console.print(f"Subject: {preview.subject}")
+        if len(previews) == 1:
+            console.print("[bold]Message ready to move[/bold]")
+            console.print(f"From: {previews[0].from_address}")
+            console.print(f"Subject: {previews[0].subject}")
+        else:
+            console.print(f"[bold]{len(previews)} messages ready to move[/bold]")
+            for index, preview in enumerate(previews, start=1):
+                console.print(f"{index}. {preview.from_address} | {preview.subject}")
         console.print(f"Destination: {normalized_folder}")
 
-    if not yes and not Confirm.ask("Move this message?", default=False):
+    prompt = "Move this message?" if len(previews) == 1 else f"Move {len(previews)} messages?"
+    if not yes and not Confirm.ask(prompt, default=False):
         console.print("[yellow]Move cancelled.[/yellow]")
         raise typer.Exit()
 
     try:
-        result = mail.move_message(
-            resolved_id,
-            destination_folder=folder or "",
-            destination_folder_id=folder_id,
-            account_email=resolved_account,
-        )
+        results = [
+            mail.move_message(
+                resolved_id,
+                destination_folder=folder or "",
+                destination_folder_id=folder_id,
+                account_email=resolved_account,
+            )
+            for resolved_id in resolved_ids
+        ]
     except (ValueError, graph.GraphError) as exc:
         raise typer.BadParameter(str(exc)) from exc
 
     if json_output:
-        console.print_json(json.dumps(asdict(result)))
+        payload = [asdict(result) for result in results]
+        console.print_json(json.dumps(payload[0] if len(payload) == 1 else payload))
         return
 
-    console.print(f"[green]Message moved[/green]: {result.destination_folder}")
+    console.print(f"[green]{len(results)} message(s) moved[/green]: {normalized_folder}")
