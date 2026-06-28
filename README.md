@@ -38,7 +38,6 @@ Notable limitations:
   original message or include original attachments automatically.
 - Encrypted outgoing messages are uploaded as one complete MIME message. Large
   encrypted MIME payloads depend on Graph accepting the resulting draft size.
-- Folder listing currently covers the top-level mail folders.
 
 ## Installation
 
@@ -275,7 +274,8 @@ msmail move --id AAMkAG... --folder-id AQMk...
 ```
 
 Supported folder aliases include `inbox`, `drafts`, `sent`, `deleted` and
-`junk`.
+`junk`. `msmail folders` lists mail folders recursively and indents child
+folders.
 
 ## S/MIME
 

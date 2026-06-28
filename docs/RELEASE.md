@@ -53,7 +53,6 @@ git push origin v0.1.0
 
 - S/MIME reply/forward does not quote or attach the original message.
 - `draft edit` refuses drafts with attachments or S/MIME.
-- Folder listing is top-level only.
 - OpenSSL temporary files are written under `/tmp`.
 - Graph `$search` behavior depends on Microsoft Graph mailbox search semantics.
 

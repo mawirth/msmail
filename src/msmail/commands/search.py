@@ -54,8 +54,9 @@ def list_folders(
     table.add_column("Children", justify="right")
     table.add_column("ID")
     for folder in folders:
+        name = f"{'  ' * folder.depth}{folder.display_name}"
         table.add_row(
-            folder.display_name,
+            name,
             str(folder.unread_item_count),
             str(folder.total_item_count),
             str(folder.child_folder_count),

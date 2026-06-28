@@ -293,22 +293,36 @@ def test_list_folders_returns_folder_metadata(monkeypatch):
         "get_access_token",
         lambda account_email=None: ("token", Account()),
     )
-    monkeypatch.setattr(
-        mail.graph,
-        "get_json",
-        lambda path, access_token, params=None: {
-            "value": [
-                {
-                    "id": "folder-id",
-                    "displayName": "Archive",
-                    "parentFolderId": "parent-id",
-                    "childFolderCount": 2,
-                    "totalItemCount": 10,
-                    "unreadItemCount": 3,
-                }
-            ]
-        },
-    )
+    def get_json(path, access_token, params=None):
+        if path == "/me/mailFolders":
+            return {
+                "value": [
+                    {
+                        "id": "folder-id",
+                        "displayName": "Archive",
+                        "parentFolderId": "parent-id",
+                        "childFolderCount": 1,
+                        "totalItemCount": 10,
+                        "unreadItemCount": 3,
+                    }
+                ]
+            }
+        if path == "/me/mailFolders/folder-id/childFolders":
+            return {
+                "value": [
+                    {
+                        "id": "child-id",
+                        "displayName": "2026",
+                        "parentFolderId": "folder-id",
+                        "childFolderCount": 0,
+                        "totalItemCount": 4,
+                        "unreadItemCount": 1,
+                    }
+                ]
+            }
+        raise AssertionError(path)
+
+    monkeypatch.setattr(mail.graph, "get_json", get_json)
 
     result = mail.list_folders()
 
@@ -318,10 +332,21 @@ def test_list_folders_returns_folder_metadata(monkeypatch):
             id="folder-id",
             display_name="Archive",
             parent_folder_id="parent-id",
-            child_folder_count=2,
+            depth=0,
+            child_folder_count=1,
             total_item_count=10,
             unread_item_count=3,
-        )
+        ),
+        mail.FolderInfo(
+            account="me@example.com",
+            id="child-id",
+            display_name="2026",
+            parent_folder_id="folder-id",
+            depth=1,
+            child_folder_count=0,
+            total_item_count=4,
+            unread_item_count=1,
+        ),
     ]
 
 

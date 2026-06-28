@@ -4,7 +4,7 @@
 
 - Add Microsoft Graph device-code authentication.
 - Add account-scoped local state and active-account handling.
-- Add message listing, reading, searching and folder listing.
+- Add message listing, reading, searching and recursive folder listing.
 - Add draft-first create/edit/send/delete workflow.
 - Add reply and forward draft creation.
 - Add normal and large attachment upload handling.

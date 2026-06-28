@@ -92,6 +92,7 @@ class FolderInfo:
     id: str
     display_name: str
     parent_folder_id: str
+    depth: int
     child_folder_count: int
     total_item_count: int
     unread_item_count: int
@@ -502,26 +503,37 @@ def list_folders(
     account_email: Optional[str] = None,
 ) -> list[FolderInfo]:
     access_token, account = auth.get_access_token(account_email)
-    response = graph.get_json(
-        "/me/mailFolders",
-        access_token,
-        params={
-            "$top": "100",
-            "$select": "id,displayName,parentFolderId,childFolderCount,totalItemCount,unreadItemCount",
-        },
-    )
-    return [
-        FolderInfo(
-            account=account.email,
-            id=folder.get("id") or "",
-            display_name=folder.get("displayName") or "",
-            parent_folder_id=folder.get("parentFolderId") or "",
-            child_folder_count=int(folder.get("childFolderCount") or 0),
-            total_item_count=int(folder.get("totalItemCount") or 0),
-            unread_item_count=int(folder.get("unreadItemCount") or 0),
+    select = "id,displayName,parentFolderId,childFolderCount,totalItemCount,unreadItemCount"
+
+    def fetch(path: str, depth: int) -> list[FolderInfo]:
+        response = graph.get_json(
+            path,
+            access_token,
+            params={
+                "$top": "100",
+                "$select": select,
+            },
         )
-        for folder in response.get("value") or []
-    ]
+        folders = []
+        for folder in response.get("value") or []:
+            child_count = int(folder.get("childFolderCount") or 0)
+            info = FolderInfo(
+                account=account.email,
+                id=folder.get("id") or "",
+                display_name=folder.get("displayName") or "",
+                parent_folder_id=folder.get("parentFolderId") or "",
+                depth=depth,
+                child_folder_count=child_count,
+                total_item_count=int(folder.get("totalItemCount") or 0),
+                unread_item_count=int(folder.get("unreadItemCount") or 0),
+            )
+            folders.append(info)
+            if child_count and info.id:
+                folder_id = graph.quote_path_segment(info.id)
+                folders.extend(fetch(f"/me/mailFolders/{folder_id}/childFolders", depth + 1))
+        return folders
+
+    return fetch("/me/mailFolders", 0)
 
 
 def _addresses(recipients: list[dict[str, Any]]) -> list[str]:
