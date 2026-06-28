@@ -260,17 +260,45 @@ def resolve_message_reference(reference: str, account_email: Optional[str] = Non
 
 
 def resolve_message_references(reference: str, account_email: Optional[str] = None) -> tuple[list[str], str]:
+    items, resolved_account = resolve_message_reference_items(reference, account_email=account_email)
+    return [item.id for item in items], resolved_account
+
+
+def resolve_message_reference_items(reference: str, account_email: Optional[str] = None) -> tuple[list[MessageSummary], str]:
     access_token, account = auth.get_access_token(account_email)
     del access_token
 
     if not reference.strip():
         raise ValueError("Message reference is empty.")
+
     if not any(character in reference for character in ",-"):
-        message_id, resolved_account = resolve_message_reference(reference, account_email=account.email)
-        return [message_id], resolved_account
+        if reference.isdigit():
+            index = int(reference)
+            for message in load_last_list(account.email):
+                if message.index == index:
+                    return [message], account.email
+            raise ValueError(f"No message #{index} in last list.")
+        return [
+            MessageSummary(
+                account=account.email,
+                index=0,
+                id=reference,
+                subject="",
+                from_name="",
+                from_address="",
+                received_date_time="",
+                is_read=False,
+                has_attachments=False,
+                has_user_attachments=False,
+                smime_signed=False,
+                smime_encrypted=False,
+                inference_classification=None,
+                body_preview="",
+            )
+        ], account.email
 
     messages = load_last_list(account.email)
-    by_index = {message.index: message.id for message in messages}
+    by_index = {message.index: message for message in messages}
     resolved = []
     seen = set()
     for raw_part in reference.split(","):
@@ -293,12 +321,12 @@ def resolve_message_references(reference: str, account_email: Optional[str] = No
 
         for index in indexes:
             try:
-                message_id = by_index[index]
+                message = by_index[index]
             except KeyError as exc:
                 raise ValueError(f"No message #{index} in last list.") from exc
-            if message_id not in seen:
-                resolved.append(message_id)
-                seen.add(message_id)
+            if message.id not in seen:
+                resolved.append(message)
+                seen.add(message.id)
 
     return resolved, account.email
 

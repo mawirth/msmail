@@ -11,6 +11,7 @@ from rich.prompt import Confirm
 from msmail.core import compose
 from msmail.core import drafts
 from msmail.core import graph
+from msmail.core import mail
 
 
 app = typer.Typer(
@@ -169,8 +170,8 @@ def edit(
 def send(
     reference: Optional[str] = typer.Argument(
         None,
-        metavar="INDEX_OR_ID",
-        help="Draft number from last list or Graph draft ID.",
+        metavar="INDEX_RANGE_OR_ID",
+        help="Draft number/range from last list or Graph draft ID.",
     ),
     draft_id: Optional[str] = typer.Option(None, "--id", help="Graph draft message ID."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Send without interactive confirmation."),
@@ -180,23 +181,40 @@ def send(
         raise typer.BadParameter("Use either INDEX_OR_ID or --id.")
 
     try:
-        info = drafts.get_draft_info(draft_id or reference or "", account_email=account)
+        if draft_id:
+            infos = [drafts.get_draft_info(draft_id, account_email=account)]
+            labels = [draft_id]
+        else:
+            items, resolved_account = mail.resolve_message_reference_items(
+                reference or "",
+                account_email=account,
+            )
+            infos = [drafts.get_draft_info(item.id, account_email=resolved_account) for item in items]
+            labels = [f"#{item.index}" if item.index else item.id for item in items]
     except (RuntimeError, ValueError, graph.GraphError) as exc:
         raise typer.BadParameter(str(exc)) from exc
 
-    console.print("[bold]Draft ready to send[/bold]")
-    _print_draft_summary(info)
+    if len(infos) == 1:
+        console.print("[bold]Draft ready to send[/bold]")
+        _print_draft_summary(infos[0])
+    else:
+        console.print(f"[bold]{len(infos)} drafts ready to send[/bold]")
+        for label, info in zip(labels, infos):
+            recipients = _recipient_summary(info)
+            console.print(f"{label}: {recipients} | Subject: {info.subject}")
 
-    if not yes and not Confirm.ask("Send this draft?", default=False):
+    prompt = "Send this draft?" if len(infos) == 1 else f"Send {len(infos)} drafts?"
+    if not yes and not Confirm.ask(prompt, default=False):
         console.print("[yellow]Send cancelled.[/yellow]")
         raise typer.Exit()
 
     try:
-        drafts.send_draft(info.id, account_email=info.account)
+        for info in infos:
+            drafts.send_draft(info.id, account_email=info.account)
     except (RuntimeError, graph.GraphError) as exc:
         raise typer.BadParameter(str(exc)) from exc
 
-    console.print("[green]Draft sent.[/green]")
+    console.print(f"[green]{len(infos)} draft(s) sent.[/green]")
 
 
 @app.command("delete")

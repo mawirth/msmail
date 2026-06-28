@@ -138,7 +138,7 @@ Manage stateful indices:
 
 - Numeric references such as `1` refer to the most recent `list` or `search`
   result for the active account.
-- `mark`, `move` and `delete` also accept ranges such as `1-4` or
+- `draft send`, `mark`, `move` and `delete` also accept ranges such as `1-4` or
   `15-20,1-5,7,10-12`.
 - Scripts should prefer `--id AAMk...`.
 
@@ -209,6 +209,7 @@ Send or delete an existing draft:
 ```sh
 msmail list --folder drafts
 msmail draft send 1
+msmail draft send 1-3
 msmail draft send --id AAMkAG... --yes
 msmail draft delete 1
 ```

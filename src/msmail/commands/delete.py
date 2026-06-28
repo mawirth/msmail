@@ -20,9 +20,10 @@ def _print_summary(result: mail.MessageOperationResult) -> None:
     console.print(f"Subject: {result.subject}")
 
 
-def _print_batch_summary(previews: list[mail.MessageDetail]) -> None:
-    for index, preview in enumerate(previews, start=1):
-        console.print(f"{index}. {preview.from_address} | {preview.subject}")
+def _print_batch_summary(items: list[mail.MessageSummary], previews: list[mail.MessageDetail]) -> None:
+    for item, preview in zip(items, previews):
+        label = f"#{item.index}" if item.index else preview.id
+        console.print(f"{label}: {preview.from_address} | {preview.subject}")
 
 
 def delete_message(
@@ -42,10 +43,11 @@ def delete_message(
         raise typer.BadParameter("--json requires --yes for delete.")
 
     try:
-        resolved_ids, resolved_account = mail.resolve_message_references(
+        items, resolved_account = mail.resolve_message_reference_items(
             message_id or reference or "",
             account_email=account,
         )
+        resolved_ids = [item.id for item in items]
         previews = [mail.get_message(resolved_id, account_email=resolved_account) for resolved_id in resolved_ids]
     except (ValueError, graph.GraphError) as exc:
         raise typer.BadParameter(str(exc)) from exc
@@ -63,7 +65,7 @@ def delete_message(
             )
         else:
             console.print(f"[bold]{len(previews)} messages ready to delete[/bold]")
-            _print_batch_summary(previews)
+            _print_batch_summary(items, previews)
 
     prompt = "Delete this message?" if len(previews) == 1 else f"Delete {len(previews)} messages?"
     if not yes and not Confirm.ask(prompt, default=False):

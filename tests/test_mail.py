@@ -138,6 +138,24 @@ def test_resolve_message_references_accepts_ranges_and_deduplicates(monkeypatch,
     assert ids == ["id-3", "id-4", "id-5", "id-1", "id-7"]
 
 
+def test_resolve_message_reference_items_keeps_original_indexes(monkeypatch, tmp_path):
+    monkeypatch.setattr(mail.auth, "account_dir", lambda account: tmp_path / account)
+    monkeypatch.setattr(
+        mail.auth,
+        "get_access_token",
+        lambda account_email=None: ("token", Account()),
+    )
+    mail.save_last_list(
+        "me@example.com",
+        [make_summary(index, f"id-{index}") for index in range(1, 5)],
+    )
+
+    items, account = mail.resolve_message_reference_items("2-3,1")
+
+    assert account == "me@example.com"
+    assert [(item.index, item.id) for item in items] == [(2, "id-2"), (3, "id-3"), (1, "id-1")]
+
+
 @pytest.mark.parametrize("reference", ["3-1", "1,a", "1-", ",1"])
 def test_resolve_message_references_rejects_invalid_ranges(monkeypatch, tmp_path, reference):
     monkeypatch.setattr(mail.auth, "account_dir", lambda account: tmp_path / account)
