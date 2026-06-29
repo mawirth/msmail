@@ -211,7 +211,7 @@ def test_read_signed_message_renders_raw_mime_body(monkeypatch):
     monkeypatch.setattr(
         mail,
         "get_message",
-        lambda message_id, account_email=None: mail.MessageDetail(
+        lambda message_id, account_email=None, include_attachment_details=True: mail.MessageDetail(
             account="me@example.com",
             id=message_id,
             subject="Signed draft",
@@ -253,12 +253,56 @@ def test_read_signed_message_renders_raw_mime_body(monkeypatch):
         ),
     )
 
-    result = runner.invoke(app, ["read", "1"])
+    result = runner.invoke(app, ["read", "1", "--attachment-details"])
 
     assert result.exit_code == 0
     assert "S/MIME:" in result.stdout
     assert "signed" in result.stdout
     assert "Signed body" in result.stdout
+
+
+def test_read_message_uses_fast_attachment_path_by_default(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        mail,
+        "resolve_message_reference",
+        lambda reference, account_email=None: ("message-id", "me@example.com"),
+    )
+
+    def get_message(message_id, account_email=None, include_attachment_details=True):
+        captured["include_attachment_details"] = include_attachment_details
+        return mail.MessageDetail(
+            account="me@example.com",
+            id=message_id,
+            subject="Status",
+            from_name="Alice",
+            from_address="alice@example.com",
+            to_addresses=["me@example.com"],
+            cc_addresses=[],
+            received_date_time="",
+            internet_message_id="",
+            body_content_type="text",
+            body_content="Hello",
+            body_preview="Hello",
+            has_attachments=True,
+            attachment_count=0,
+            attachments=[],
+            smime_signed=False,
+            smime_encrypted=False,
+            attachment_details_loaded=False,
+        )
+
+    monkeypatch.setattr(mail, "get_message", get_message)
+
+    result = runner.invoke(app, ["read", "1"])
+
+    assert result.exit_code == 0
+    assert captured["include_attachment_details"] is False
+    assert "Attachments:" in result.stdout
+    assert "yes" in result.stdout
+    assert "S/MIME:" in result.stdout
+    assert "unknown" in result.stdout
+    assert "Hello" in result.stdout
 
 
 def test_read_verified_signed_message_renders_verified_body(monkeypatch, tmp_path):
@@ -273,7 +317,7 @@ def test_read_verified_signed_message_renders_verified_body(monkeypatch, tmp_pat
     monkeypatch.setattr(
         mail,
         "get_message",
-        lambda message_id, account_email=None: mail.MessageDetail(
+        lambda message_id, account_email=None, include_attachment_details=True: mail.MessageDetail(
             account="me@example.com",
             id=message_id,
             subject="Signed draft",

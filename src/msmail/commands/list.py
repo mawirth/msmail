@@ -99,6 +99,11 @@ def list_messages(
     from_address: Optional[str] = typer.Option(None, "--from", help="Filter by exact sender email address."),
     after: Optional[str] = typer.Option(None, "--after", help="Only messages on or after YYYY-MM-DD."),
     before: Optional[str] = typer.Option(None, "--before", help="Only messages before YYYY-MM-DD."),
+    attachment_details: bool = typer.Option(
+        False,
+        "--attachment-details",
+        help="Inspect attachments to distinguish user files from S/MIME metadata.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Print JSON output."),
     account: Optional[str] = typer.Option(None, "--account", help="Mail account email address."),
 ) -> None:
@@ -120,10 +125,11 @@ def list_messages(
             folder=folder,
             inbox_class=inbox_class,
             limit=resolved_limit,
-        account_email=account,
-        from_address=from_address,
-        after=after,
-        before=before,
+            account_email=account,
+            from_address=from_address,
+            after=after,
+            before=before,
+            include_attachment_details=attachment_details,
         )
     except (ValueError, graph.GraphError) as exc:
         raise typer.BadParameter(str(exc)) from exc

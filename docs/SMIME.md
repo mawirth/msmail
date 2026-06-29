@@ -104,8 +104,9 @@ attachments automatically.
 Detect S/MIME markers:
 
 ```sh
-msmail read 1
-msmail read 1 --json
+msmail list --attachment-details
+msmail read 1 --attachment-details
+msmail read 1 --attachment-details --json
 ```
 
 Verify a signed message:

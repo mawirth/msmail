@@ -126,8 +126,14 @@ msmail list --all
 msmail list --folder sent
 msmail list --from alice@example.com
 msmail list --after 2026-06-01 --before 2026-07-01
+msmail list --attachment-details
 msmail list --json
 ```
+
+The list status column uses `UASE`: unread, attachment, S/MIME signed, S/MIME
+encrypted. By default `list` avoids per-message attachment lookups for speed, so
+`A` means Graph reports attachments. Use `--attachment-details` when you need
+S/MIME markers or need to distinguish normal files from S/MIME metadata.
 
 Read mail:
 
@@ -135,8 +141,13 @@ Read mail:
 msmail read 1
 msmail read --id AAMkAG...
 msmail read 1 --html
+msmail read 1 --attachment-details
 msmail read 1 --json
 ```
+
+The default read path avoids a separate attachment-detail request. Use
+`--attachment-details` to print attachment names and detect S/MIME metadata
+without verifying/decrypting.
 
 Search:
 

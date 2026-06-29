@@ -22,6 +22,7 @@ def _smime_metadata(message: mail.MessageDetail) -> dict[str, object]:
     return {
         "signed": message.smime_signed,
         "encrypted": message.smime_encrypted,
+        "known": message.attachment_details_loaded,
         "decrypted": None,
         "verified": None,
         "trusted": None,
@@ -66,6 +67,8 @@ def _print_smime_status(
         console.print("[bold]S/MIME:[/bold] signed (use --verify-smime)")
     elif metadata["encrypted"]:
         console.print("[bold]S/MIME:[/bold] encrypted")
+    elif not metadata["known"]:
+        console.print("[bold]S/MIME:[/bold] unknown (use --attachment-details)")
     else:
         console.print("[bold]S/MIME:[/bold] none")
 
@@ -85,7 +88,10 @@ def _print_message(message: mail.MessageDetail, raw_html: bool) -> None:
         console.print(f"[bold]Cc:[/bold] {', '.join(message.cc_addresses)}")
     console.print(f"[bold]Date:[/bold] {message.received_date_time}")
     console.print(f"[bold]Subject:[/bold] {message.subject}")
-    console.print(f"[bold]Attachments:[/bold] {message.attachment_count}")
+    if message.attachment_details_loaded:
+        console.print(f"[bold]Attachments:[/bold] {message.attachment_count}")
+    else:
+        console.print("[bold]Attachments:[/bold] yes")
     for attachment in message.attachments:
         inline = " inline" if attachment.is_inline else ""
         size = f", {attachment.size} bytes" if attachment.size else ""
@@ -104,6 +110,11 @@ def read_message(
     raw_html: bool = typer.Option(False, "--html", help="Show raw HTML body."),
     verify_smime: bool = typer.Option(False, "--verify-smime", help="Verify S/MIME signature from raw MIME."),
     decrypt_smime: bool = typer.Option(False, "--decrypt", help="Decrypt S/MIME encrypted MIME before rendering."),
+    attachment_details: bool = typer.Option(
+        False,
+        "--attachment-details",
+        help="Fetch and print attachment names and S/MIME metadata.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Print JSON output."),
     account: Optional[str] = typer.Option(None, "--account", help="Mail account email address."),
 ) -> None:
@@ -115,7 +126,11 @@ def read_message(
             message_id or reference or "",
             account_email=account,
         )
-        message = mail.get_message(resolved_id, account_email=resolved_account)
+        message = mail.get_message(
+            resolved_id,
+            account_email=resolved_account,
+            include_attachment_details=attachment_details or verify_smime or decrypt_smime,
+        )
         smime_result = None
         decrypt_result = None
         decrypted_body = None

@@ -75,6 +75,7 @@ class MessageDetail:
     attachments: list[AttachmentInfo]
     smime_signed: bool
     smime_encrypted: bool
+    attachment_details_loaded: bool = True
 
 
 @dataclass(frozen=True)
@@ -398,6 +399,7 @@ def list_messages(
     from_address: Optional[str] = None,
     after: Optional[str] = None,
     before: Optional[str] = None,
+    include_attachment_details: bool = False,
 ) -> list[MessageSummary]:
     folder_id = normalize_folder(folder)
     if folder_id != "inbox" and inbox_class != "all":
@@ -448,7 +450,7 @@ def list_messages(
     for index, message in enumerate(values, start=1):
         attachments = None
         message_id = message.get("id") or ""
-        if message.get("hasAttachments") and message_id:
+        if include_attachment_details and message.get("hasAttachments") and message_id:
             attachments = list_attachments(message_id, account_email=account_email)
         messages.append(_message_to_summary(account_email, index, message, attachments))
     save_last_list(account_email, messages)
@@ -460,6 +462,7 @@ def search_messages(
     *,
     limit: int = 25,
     account_email: Optional[str] = None,
+    include_attachment_details: bool = False,
 ) -> list[MessageSummary]:
     if not query.strip():
         raise ValueError("Search query is empty.")
@@ -491,7 +494,7 @@ def search_messages(
     for index, message in enumerate(response.get("value") or [], start=1):
         attachments = None
         message_id = message.get("id") or ""
-        if message.get("hasAttachments") and message_id:
+        if include_attachment_details and message.get("hasAttachments") and message_id:
             attachments = list_attachments(message_id, account_email=account_email)
         messages.append(_message_to_summary(account_email, index, message, attachments))
     save_last_list(account_email, messages)
@@ -589,7 +592,11 @@ def list_attachments(message_id: str, account_email: Optional[str] = None) -> li
     return [_attachment_to_info(attachment) for attachment in response.get("value") or []]
 
 
-def get_message(message_id: str, account_email: Optional[str] = None) -> MessageDetail:
+def get_message(
+    message_id: str,
+    account_email: Optional[str] = None,
+    include_attachment_details: bool = True,
+) -> MessageDetail:
     access_token, account = auth.get_access_token(account_email)
     message_path_id = graph.quote_path_segment(message_id)
     select = ",".join(
@@ -613,7 +620,11 @@ def get_message(message_id: str, account_email: Optional[str] = None) -> Message
     )
     sender = ((message.get("from") or {}).get("emailAddress") or {})
     body = message.get("body") or {}
-    attachments = list_attachments(message.get("id") or message_id, account_email=account.email) if message.get("hasAttachments") else []
+    attachments = (
+        list_attachments(message.get("id") or message_id, account_email=account.email)
+        if include_attachment_details and message.get("hasAttachments")
+        else []
+    )
     _has_user_attachments, smime_signed, smime_encrypted = _attachment_flags(attachments)
     user_attachments = [
         attachment
@@ -638,6 +649,7 @@ def get_message(message_id: str, account_email: Optional[str] = None) -> Message
         attachments=user_attachments,
         smime_signed=smime_signed,
         smime_encrypted=smime_encrypted,
+        attachment_details_loaded=include_attachment_details or not bool(message.get("hasAttachments")),
     )
 
 

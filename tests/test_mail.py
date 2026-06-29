@@ -287,6 +287,95 @@ def test_search_messages_calls_graph_search_and_saves_last_list(monkeypatch, tmp
     assert mail.load_last_list("me@example.com")[0].id == "message-id"
 
 
+def test_list_messages_does_not_fetch_attachment_details_by_default(monkeypatch, tmp_path):
+    monkeypatch.setattr(mail.auth, "account_dir", lambda account: tmp_path / account)
+    monkeypatch.setattr(
+        mail.auth,
+        "get_access_token",
+        lambda account_email=None: ("token", Account()),
+    )
+    calls = []
+
+    def get_json(path, access_token, params=None):
+        calls.append(path)
+        if path == "/me/mailFolders/inbox/messages":
+            return {
+                "value": [
+                    {
+                        "id": "message-id",
+                        "subject": "Status",
+                        "from": {"emailAddress": {"name": "Alice", "address": "alice@example.com"}},
+                        "receivedDateTime": "2026-06-28T10:00:00Z",
+                        "isRead": True,
+                        "hasAttachments": True,
+                    }
+                ]
+            }
+        raise AssertionError(path)
+
+    monkeypatch.setattr(mail.graph, "get_json", get_json)
+
+    result = mail.list_messages()
+
+    assert calls == ["/me/mailFolders/inbox/messages"]
+    assert result[0].has_attachments is True
+    assert result[0].has_user_attachments is True
+    assert result[0].smime_signed is False
+    assert result[0].smime_encrypted is False
+
+
+def test_list_messages_can_fetch_attachment_details(monkeypatch, tmp_path):
+    monkeypatch.setattr(mail.auth, "account_dir", lambda account: tmp_path / account)
+    monkeypatch.setattr(
+        mail.auth,
+        "get_access_token",
+        lambda account_email=None: ("token", Account()),
+    )
+    calls = []
+
+    def get_json(path, access_token, params=None):
+        calls.append(path)
+        if path == "/me/mailFolders/inbox/messages":
+            return {
+                "value": [
+                    {
+                        "id": "message/id",
+                        "subject": "Signed",
+                        "from": {"emailAddress": {"name": "Alice", "address": "alice@example.com"}},
+                        "receivedDateTime": "2026-06-28T10:00:00Z",
+                        "isRead": True,
+                        "hasAttachments": True,
+                    }
+                ]
+            }
+        if path == "/me/messages/message%2Fid/attachments":
+            return {
+                "value": [
+                    {
+                        "@odata.type": "#microsoft.graph.fileAttachment",
+                        "id": "sig",
+                        "name": "smime.p7m",
+                        "contentType": "multipart/signed",
+                        "size": 200,
+                        "isInline": False,
+                    }
+                ]
+            }
+        raise AssertionError(path)
+
+    monkeypatch.setattr(mail.graph, "get_json", get_json)
+
+    result = mail.list_messages(include_attachment_details=True)
+
+    assert calls == [
+        "/me/mailFolders/inbox/messages",
+        "/me/messages/message%2Fid/attachments",
+    ]
+    assert result[0].has_user_attachments is False
+    assert result[0].smime_signed is True
+    assert result[0].smime_encrypted is False
+
+
 def test_list_folders_returns_folder_metadata(monkeypatch):
     monkeypatch.setattr(
         mail.auth,
@@ -716,8 +805,47 @@ def test_get_message_reports_smime_metadata_without_user_attachment(monkeypatch)
     assert read_command._smime_metadata(detail) == {
         "signed": True,
         "encrypted": False,
+        "known": True,
         "decrypted": None,
         "verified": None,
         "trusted": None,
         "error": None,
     }
+
+
+def test_get_message_can_skip_attachment_details(monkeypatch):
+    monkeypatch.setattr(
+        mail.auth,
+        "get_access_token",
+        lambda account_email=None: ("token", Account()),
+    )
+    calls = []
+
+    def get_json(path, access_token, params=None):
+        calls.append(path)
+        if path == "/me/messages/message%2Fid":
+            return {
+                "id": "message/id",
+                "subject": "Status",
+                "from": {"emailAddress": {"name": "Alice", "address": "alice@example.com"}},
+                "toRecipients": [{"emailAddress": {"address": "me@example.com"}}],
+                "ccRecipients": [],
+                "receivedDateTime": "2026-06-28T10:00:00Z",
+                "internetMessageId": "<message@example.com>",
+                "body": {"contentType": "text", "content": "Hello"},
+                "bodyPreview": "Hello",
+                "hasAttachments": True,
+            }
+        raise AssertionError(path)
+
+    monkeypatch.setattr(mail.graph, "get_json", get_json)
+
+    detail = mail.get_message("message/id", include_attachment_details=False)
+
+    assert calls == ["/me/messages/message%2Fid"]
+    assert detail.has_attachments is True
+    assert detail.attachment_count == 0
+    assert detail.attachments == []
+    assert detail.smime_signed is False
+    assert detail.smime_encrypted is False
+    assert detail.attachment_details_loaded is False
