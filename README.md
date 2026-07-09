@@ -74,6 +74,32 @@ Requirements:
 - OpenSSL in `PATH` for S/MIME.
 - A Microsoft account or Microsoft 365 account with Graph mail access.
 
+## Quickstart
+
+Install the command, sign in with Microsoft device-code login, list your inbox
+and read the newest message:
+
+```sh
+pipx install git+https://github.com/mawirth/msmail.git
+msmail auth --login user@example.com
+msmail doctor
+msmail list
+msmail read 1
+```
+
+Create a draft, review it, then send it explicitly:
+
+```sh
+msmail draft create \
+  --to alice@example.com \
+  --subject "Hello" \
+  --body "Hello from msmail."
+
+msmail list --folder drafts
+msmail read 1
+msmail draft send 1
+```
+
 ## Authentication
 
 `msmail` uses MSAL device-code login:
