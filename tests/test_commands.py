@@ -202,6 +202,68 @@ def test_draft_create_warns_that_smime_draft_cannot_be_edited(monkeypatch):
     assert "cannot be edited with draft edit" in result.stdout
 
 
+def test_direct_send_is_noninteractive_with_yes_and_json(monkeypatch):
+    captured = {}
+
+    def create_and_send(draft, account_email=None, include_signature=True):
+        captured["draft"] = draft
+        captured["account"] = account_email
+        captured["include_signature"] = include_signature
+        return drafts.SentMessageResult(
+            account="alerts@example.com",
+            id="draft-id",
+            subject=draft.subject,
+            to=draft.to,
+            attachments=draft.attachments,
+            sent=True,
+        )
+
+    monkeypatch.setattr(drafts, "create_and_send", create_and_send)
+
+    result = runner.invoke(
+        app,
+        [
+            "send",
+            "--to",
+            "admin@example.com",
+            "--subject",
+            "Backup failed",
+            "--body",
+            "See the log.",
+            "--account",
+            "alerts@example.com",
+            "--no-signature",
+            "--yes",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["account"] == "alerts@example.com"
+    assert captured["include_signature"] is False
+    assert captured["draft"].body == "See the log."
+    assert '"sent": true' in result.stdout
+
+
+def test_direct_send_json_requires_yes():
+    result = runner.invoke(
+        app,
+        [
+            "send",
+            "--to",
+            "admin@example.com",
+            "--subject",
+            "Test",
+            "--body",
+            "Hello",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--json requires --yes" in result.stdout
+
+
 def test_read_signed_message_renders_raw_mime_body(monkeypatch):
     monkeypatch.setattr(
         mail,

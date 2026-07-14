@@ -3,7 +3,8 @@
 `msmail` is a small, scriptable command-line mail client for Outlook.com and
 Microsoft 365 accounts. It talks to Microsoft Graph directly and keeps a
 draft-first workflow: composing a message creates a draft, and sending that
-draft is a separate explicit command.
+draft is a separate explicit command. For unattended jobs it also provides an
+explicit, non-interactive create-and-send command.
 
 The project started as a portable Python successor to a PowerShell prototype
 (`psmail`). It is currently focused on practical terminal use, predictable JSON
@@ -21,6 +22,7 @@ Implemented:
 - Focused/Other inbox listing.
 - Read mail as text, raw HTML, or JSON.
 - Draft create, edit, send and delete.
+- Direct, non-interactive sending for scripts and services.
 - Reply and forward draft creation.
 - Attachments, including upload sessions for larger normal attachments.
 - Save normal attachments and encrypted S/MIME-container attachments.
@@ -140,6 +142,16 @@ Local state is stored below:
 ```
 
 Do not commit files from this state directory.
+
+On Linux and other POSIX systems, `msmail` restricts the state directories to
+the current user (`0700`) and state files, including the token cache, to `0600`.
+On Windows, access is governed by the current user's inherited Windows ACLs.
+Do not copy the token cache between machines or operating-system users.
+
+For a headless machine, run `auth --login` once as the same operating-system
+user that will later run the service. The command displays a device code; the
+browser step may be completed on another computer. MSAL then normally renews
+access tokens silently from its local cache.
 
 ## Basic Use
 
@@ -290,6 +302,33 @@ msmail draft delete 1
 ```
 
 `draft send` and `draft delete` ask for confirmation by default.
+
+## Direct Sending for Automation
+
+`send` creates a draft and immediately sends it. It never opens an editor. By
+default it still asks for confirmation; unattended jobs must explicitly use
+`--yes`. Combine it with `--json` for machine-readable output:
+
+```sh
+msmail send \
+  --to admin@example.com \
+  --subject "Backup failed on site-b-01" \
+  --body-file /path/to/message.txt \
+  --account sender@example.com \
+  --no-signature \
+  --yes \
+  --json
+```
+
+A compose file, Cc/Bcc recipients, repeated `--attach` options, HTML and S/MIME
+are supported as well. If Graph creates the draft but sending fails, the error
+contains the retained draft ID so it can be inspected later.
+
+Update a GitHub installation with:
+
+```sh
+pipx upgrade msmail
+```
 
 Reply and forward create drafts only:
 

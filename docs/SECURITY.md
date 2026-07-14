@@ -27,6 +27,14 @@ Runtime state is outside the repository:
 ~/.local/share/msmail/
 ```
 
+On POSIX systems, `msmail` creates and repairs state directories with mode
+`0700` and regular state files with mode `0600`. This includes the MSAL token
+cache, profiles and list indexes. On Windows, the files rely on the current
+user's inherited Windows ACLs.
+
+Authenticate separately as the operating-system account that runs `msmail`.
+Do not copy or share the MSAL token cache between hosts or service users.
+
 Account S/MIME material is account-scoped:
 
 ```text

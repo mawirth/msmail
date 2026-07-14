@@ -219,6 +219,38 @@ def test_create_draft_can_skip_signature(monkeypatch, tmp_path):
     assert captured["body"]["body"]["content"] == "Done."
 
 
+def test_create_and_send_uses_created_draft_account(monkeypatch):
+    sent = []
+    monkeypatch.setattr(
+        drafts,
+        "create_draft",
+        lambda draft, account_email=None, include_signature=True: drafts.DraftResult(
+            account="me@example.com",
+            id="draft-id",
+            subject=draft.subject,
+            to=draft.to,
+            attachments=["report.txt"],
+        ),
+    )
+    monkeypatch.setattr(
+        drafts,
+        "send_draft",
+        lambda draft_id, account_email=None: sent.append((draft_id, account_email)),
+    )
+
+    result = drafts.create_and_send(make_draft(), account_email="alias@example.com")
+
+    assert sent == [("draft-id", "me@example.com")]
+    assert result == drafts.SentMessageResult(
+        account="me@example.com",
+        id="draft-id",
+        subject="Status",
+        to=["alice@example.com"],
+        attachments=["report.txt"],
+        sent=True,
+    )
+
+
 def test_create_signed_draft_posts_only_signed_mime(monkeypatch, tmp_path):
     posted = {}
     signed = tmp_path / "signed.eml"

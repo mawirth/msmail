@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import tempfile
 from typing import Callable, Optional
 
 import msal
@@ -58,12 +59,73 @@ def account_key(email: str) -> str:
     return "".join(ch if ch.isalnum() or ch in "@._-" else "_" for ch in normalized)
 
 
+def _set_private_mode(path: Path, mode: int) -> None:
+    try:
+        path.chmod(mode)
+    except OSError:
+        # Windows protects these files through the user's inherited ACLs and
+        # does not implement POSIX permission bits in the same way.
+        if os.name != "nt":
+            raise
+
+
+def ensure_private_directory(path: Path) -> Path:
+    if path.is_symlink():
+        raise RuntimeError(f"Refusing to use symlink as private state directory: {path}")
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    current = path
+    while True:
+        _set_private_mode(current, 0o700)
+        if current == STATE_DIR or STATE_DIR not in current.parents:
+            break
+        current = current.parent
+    return path
+
+
+def write_private_text(path: Path, content: str) -> None:
+    ensure_private_directory(path.parent)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        dir=path.parent,
+        text=True,
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _set_private_mode(temporary_path, 0o600)
+        os.replace(temporary_path, path)
+        _set_private_mode(path, 0o600)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def harden_runtime_state() -> None:
+    """Restrict existing runtime state to the current user on POSIX systems."""
+    if not STATE_DIR.exists():
+        return
+    if STATE_DIR.is_symlink():
+        raise RuntimeError(f"Refusing to use symlink as private state directory: {STATE_DIR}")
+
+    _set_private_mode(STATE_DIR, 0o700)
+    for path in STATE_DIR.rglob("*"):
+        if path.is_symlink():
+            continue
+        if path.is_dir():
+            _set_private_mode(path, 0o700)
+        elif path.is_file():
+            _set_private_mode(path, 0o600)
+
+
 def _account_dir(email: str) -> Path:
     return ACCOUNTS_DIR / account_key(email)
 
 
 def account_dir(email: str) -> Path:
-    return _account_dir(email)
+    harden_runtime_state()
+    return ensure_private_directory(_account_dir(email))
 
 
 def _token_cache_path(email: str) -> Path:
@@ -75,6 +137,7 @@ def _profile_path(email: str) -> Path:
 
 
 def _load_cache(email: str) -> msal.SerializableTokenCache:
+    harden_runtime_state()
     cache = msal.SerializableTokenCache()
     path = _token_cache_path(email)
     if path.exists():
@@ -85,9 +148,8 @@ def _load_cache(email: str) -> msal.SerializableTokenCache:
 def _save_cache(email: str, cache: msal.SerializableTokenCache) -> None:
     if not cache.has_state_changed:
         return
-    directory = _account_dir(email)
-    directory.mkdir(parents=True, exist_ok=True)
-    _token_cache_path(email).write_text(cache.serialize(), encoding="utf-8")
+    ensure_private_directory(_account_dir(email))
+    write_private_text(_token_cache_path(email), cache.serialize())
 
 
 def _app(cache: msal.SerializableTokenCache) -> msal.PublicClientApplication:
@@ -99,6 +161,7 @@ def _app(cache: msal.SerializableTokenCache) -> msal.PublicClientApplication:
 
 
 def _active_email() -> str | None:
+    harden_runtime_state()
     if not STATE_FILE.exists():
         return None
     data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -111,27 +174,27 @@ def active_email() -> str | None:
 
 
 def _set_active(email: str) -> None:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(
+    ensure_private_directory(STATE_DIR)
+    write_private_text(
+        STATE_FILE,
         json.dumps({"active_account": email}, indent=2) + "\n",
-        encoding="utf-8",
     )
 
 
 def _save_profile(account: Account) -> None:
     if not account.account_key:
         return
-    directory = _account_dir(account.email)
-    directory.mkdir(parents=True, exist_ok=True)
+    ensure_private_directory(_account_dir(account.email))
     data = asdict(account)
     data["last_used"] = datetime.now(timezone.utc).isoformat()
-    _profile_path(account.email).write_text(
+    write_private_text(
+        _profile_path(account.email),
         json.dumps(data, indent=2) + "\n",
-        encoding="utf-8",
     )
 
 
 def _load_profile(email: str) -> Account | None:
+    harden_runtime_state()
     path = _profile_path(email)
     if not path.exists():
         return None

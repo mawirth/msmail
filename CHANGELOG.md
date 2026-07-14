@@ -15,3 +15,7 @@
 - Add S/MIME setup, recipient certificate import, sign, encrypt, decrypt and
   verify support through OpenSSL.
 - Add JSON output for scriptable workflows.
+- Add an explicit, non-interactive `msmail send --yes --json` workflow for
+  unattended scripts and services.
+- Restrict POSIX runtime directories to `0700` and runtime files, including the
+  MSAL token cache, to `0600`, repairing existing state automatically.

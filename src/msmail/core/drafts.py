@@ -25,6 +25,16 @@ class DraftResult:
 
 
 @dataclass(frozen=True)
+class SentMessageResult:
+    account: str
+    id: str
+    subject: str
+    to: list[str]
+    attachments: list[str]
+    sent: bool
+
+
+@dataclass(frozen=True)
 class DraftInfo:
     account: str
     id: str
@@ -463,6 +473,34 @@ def send_draft(draft_id: str, account_email: Optional[str] = None) -> None:
     access_token, _account = auth.get_access_token(account_email)
     draft_path_id = graph.quote_path_segment(draft_id)
     graph.post_empty(f"/me/messages/{draft_path_id}/send", access_token)
+
+
+def create_and_send(
+    draft: compose.ComposeDraft,
+    account_email: Optional[str] = None,
+    include_signature: bool = True,
+) -> SentMessageResult:
+    created = create_draft(
+        draft,
+        account_email=account_email,
+        include_signature=include_signature,
+    )
+    if not created.id:
+        raise RuntimeError("Graph created no usable draft ID; message was not sent.")
+    try:
+        send_draft(created.id, account_email=created.account)
+    except (RuntimeError, graph.GraphError) as exc:
+        raise RuntimeError(
+            f"Draft {created.id} was created but could not be sent: {exc}"
+        ) from exc
+    return SentMessageResult(
+        account=created.account,
+        id=created.id,
+        subject=created.subject,
+        to=created.to,
+        attachments=created.attachments,
+        sent=True,
+    )
 
 
 def create_reply_draft(

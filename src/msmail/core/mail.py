@@ -193,10 +193,9 @@ def _last_list_path(account_email: str) -> Path:
 
 def save_last_list(account_email: str, messages: list[MessageSummary]) -> None:
     path = _last_list_path(account_email)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    auth.write_private_text(
+        path,
         json.dumps([asdict(message) for message in messages], indent=2) + "\n",
-        encoding="utf-8",
     )
 
 
