@@ -21,6 +21,9 @@ class SmimePaths:
     ca_bundle: str
     fullchain: str
     recipients_dir: str
+    # Optional extra trust anchors for verifying incoming signatures. Defaults
+    # to "" for callers that build SmimePaths themselves.
+    trusted_ca: str = ""
 
 
 @dataclass(frozen=True)
@@ -112,6 +115,7 @@ def smime_paths(account_email: str) -> SmimePaths:
         ca_bundle=str(directory / "ca-bundle.pem"),
         fullchain=str(directory / "own-fullchain.p12"),
         recipients_dir=str(directory / "recipients"),
+        trusted_ca=str(directory / "trusted-ca.pem"),
     )
 
 
@@ -269,7 +273,10 @@ def setup(
 
 
 def _recipient_filename(email: str) -> str:
-    return email.strip().lower()
+    # account_key keeps alphanumerics and @._- and replaces everything else,
+    # so a recipient address can never escape the recipients directory. Plain
+    # addresses are unchanged, existing files keep resolving.
+    return auth.account_key(email)
 
 
 def import_recipient_certificate(
@@ -321,6 +328,36 @@ def status(account_email: Optional[str] = None) -> SmimeStatus:
         recipients_dir_exists=Path(paths.recipients_dir).is_dir(),
         certificate=cert_info,
     )
+
+
+def verification_material(account_email: Optional[str] = None) -> tuple[str, SmimePaths]:
+    """Paths used to verify an incoming signature.
+
+    Verifying somebody else's signature needs trust anchors, not our own
+    certificate and least of all our private key, so this deliberately does not
+    call require_configured.
+    """
+    account_email = resolve_account_email(account_email)
+    return account_email, smime_paths(account_email)
+
+
+def _trust_bundle(paths: SmimePaths, directory: Path) -> Optional[Path]:
+    """Combine the CA material we trust for incoming signatures.
+
+    Both the account's own CA bundle and an optional trusted-ca.pem count. The
+    system default store stays active because -no-CAfile is never passed, so
+    certificates from public CAs verify without any local configuration; when
+    we have no local material at all, the default store is all that is used.
+    """
+    chunks = []
+    for source in (paths.trusted_ca, paths.ca_bundle):
+        if source and Path(source).is_file():
+            chunks.append(Path(source).read_bytes().rstrip() + b"\n")
+    if not chunks:
+        return None
+    bundle = directory / "trust-bundle.pem"
+    bundle.write_bytes(b"".join(chunks))
+    return bundle
 
 
 def require_configured(account_email: Optional[str] = None) -> tuple[str, SmimePaths]:
@@ -662,12 +699,14 @@ def verify_signed_mime_bytes(
     account_email: Optional[str] = None,
     output_dir: Optional[str] = None,
 ) -> VerifyResult:
-    _account, paths = require_configured(account_email)
+    _account, paths = verification_material(account_email)
     directory, owned = _working_dir(output_dir, TEMP_PREFIX + "verify-")
     signed_path = directory / "incoming.eml"
     verified_path = directory / "verified.eml"
     signer_path = directory / "signer.pem"
     signed_path.write_bytes(mime_bytes)
+    trust_bundle = _trust_bundle(paths, directory)
+    trust_arguments = ["-CAfile", str(trust_bundle)] if trust_bundle else []
 
     def reported_signer() -> str | None:
         if owned or not signer_path.exists():
@@ -683,8 +722,7 @@ def verify_signed_mime_bytes(
                     "-verify",
                     "-in",
                     str(signed_path),
-                    "-CAfile",
-                    paths.ca_bundle,
+                    *trust_arguments,
                     "-signer",
                     str(signer_path),
                     "-out",

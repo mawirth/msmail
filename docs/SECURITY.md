@@ -44,6 +44,12 @@ Account S/MIME material is account-scoped:
 Private-key files are created with restrictive permissions where `msmail`
 copies them during `smime setup`.
 
+Verifying an incoming signature uses trust anchors only and never reads the
+private key. Anchors are the system default CA store, the account's own
+`ca-bundle.pem` and an optional `trusted-ca.pem`. Adding a CA to
+`trusted-ca.pem` means trusting it for every incoming signature on that
+account, so add only anchors you would also add to the system store.
+
 ## S/MIME Cleartext
 
 Encrypted outgoing mail is encrypted locally before the Graph draft is created.

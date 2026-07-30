@@ -158,6 +158,7 @@ def test_recipient_certificates_use_own_cert_for_self_and_recipient_dir_for_othe
     )
 
     monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    monkeypatch.setattr(smime, "verification_material", lambda account_email=None: ("me@example.com", paths))
 
     assert smime.recipient_certificates(
         ["alice@example.com", "me@example.com", "alice@example.com"],
@@ -180,6 +181,7 @@ def test_recipient_certificates_reports_missing_cert(monkeypatch, tmp_path):
     )
 
     monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    monkeypatch.setattr(smime, "verification_material", lambda account_email=None: ("me@example.com", paths))
 
     with pytest.raises(ValueError, match="Missing S/MIME recipient certificate"):
         smime.recipient_certificates(["alice@example.com"], account_email="me@example.com")
@@ -231,6 +233,7 @@ def test_sign_mime_calls_openssl_with_configured_paths(monkeypatch, tmp_path):
     calls = []
 
     monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    monkeypatch.setattr(smime, "verification_material", lambda account_email=None: ("me@example.com", paths))
 
     def run_openssl_file(args):
         calls.append(args)
@@ -286,6 +289,7 @@ def test_encrypt_mime_calls_openssl_with_recipient_certs(monkeypatch, tmp_path):
     calls = []
 
     monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    monkeypatch.setattr(smime, "verification_material", lambda account_email=None: ("me@example.com", paths))
 
     def run_openssl_file(args):
         calls.append(args)
@@ -333,6 +337,7 @@ def test_decrypt_mime_bytes_calls_openssl_with_own_cert_and_key(monkeypatch, tmp
     calls = []
 
     monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    monkeypatch.setattr(smime, "verification_material", lambda account_email=None: ("me@example.com", paths))
 
     def run_openssl_file(args):
         calls.append(args)
@@ -377,6 +382,7 @@ def test_decrypt_mime_bytes_reports_decrypt_error(monkeypatch, tmp_path):
     )
 
     monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    monkeypatch.setattr(smime, "verification_material", lambda account_email=None: ("me@example.com", paths))
     monkeypatch.setattr(
         smime,
         "_run_openssl_file",
@@ -412,6 +418,7 @@ def test_verify_signed_mime_calls_openssl_verify(monkeypatch, tmp_path):
     calls = []
 
     monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    monkeypatch.setattr(smime, "verification_material", lambda account_email=None: ("me@example.com", paths))
 
     def run_openssl_file(args):
         calls.append(args)
@@ -456,6 +463,7 @@ def test_verify_signed_mime_bytes_returns_verified_result(monkeypatch, tmp_path)
     )
 
     monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    monkeypatch.setattr(smime, "verification_material", lambda account_email=None: ("me@example.com", paths))
 
     def run_openssl_file(args):
         Path(args[args.index("-out") + 1]).write_text("verified", encoding="utf-8")
@@ -484,6 +492,7 @@ def test_verify_signed_mime_bytes_reports_failed_signature(monkeypatch, tmp_path
         recipients_dir=str(tmp_path / "recipients"),
     )
     monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    monkeypatch.setattr(smime, "verification_material", lambda account_email=None: ("me@example.com", paths))
     monkeypatch.setattr(
         smime,
         "_run_openssl_file",
@@ -520,6 +529,7 @@ def _fake_paths(tmp_path):
 def test_decrypt_removes_its_own_working_directory(monkeypatch, tmp_path):
     paths = _fake_paths(tmp_path)
     monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    monkeypatch.setattr(smime, "verification_material", lambda account_email=None: ("me@example.com", paths))
     seen = {}
 
     def run_openssl_file(args):
@@ -542,6 +552,7 @@ def test_decrypt_removes_its_own_working_directory(monkeypatch, tmp_path):
 def test_decrypt_failure_also_removes_the_working_directory(monkeypatch, tmp_path):
     paths = _fake_paths(tmp_path)
     monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    monkeypatch.setattr(smime, "verification_material", lambda account_email=None: ("me@example.com", paths))
     seen = {}
 
     def run_openssl_file(args):
@@ -559,6 +570,7 @@ def test_decrypt_failure_also_removes_the_working_directory(monkeypatch, tmp_pat
 def test_verify_removes_its_own_working_directory(monkeypatch, tmp_path):
     paths = _fake_paths(tmp_path)
     monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    monkeypatch.setattr(smime, "verification_material", lambda account_email=None: ("me@example.com", paths))
     seen = {}
 
     def run_openssl_file(args):
@@ -582,6 +594,7 @@ def test_verify_removes_its_own_working_directory(monkeypatch, tmp_path):
 def test_caller_supplied_output_dir_is_kept(monkeypatch, tmp_path):
     paths = _fake_paths(tmp_path)
     monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    monkeypatch.setattr(smime, "verification_material", lambda account_email=None: ("me@example.com", paths))
     monkeypatch.setattr(
         smime,
         "_run_openssl_file",
@@ -608,3 +621,95 @@ def test_discard_working_dir_refuses_foreign_directories(tmp_path):
     smime.discard_working_dir(foreign)
 
     assert (foreign / "keep.txt").exists()
+
+
+@pytest.mark.parametrize(
+    ("address", "expected"),
+    [
+        ("alice@example.com", "alice@example.com"),
+        ("Alice@Example.COM", "alice@example.com"),
+        ("../../../../tmp/pwned", ".._.._.._.._tmp_pwned"),
+        ("a/b@example.com", "a_b@example.com"),
+    ],
+)
+def test_recipient_filename_cannot_escape_the_recipients_directory(address, expected):
+    filename = smime._recipient_filename(address)
+
+    assert filename == expected
+    assert "/" not in filename and ".." != filename
+    target = Path("/state/smime/recipients") / f"{filename}.pem"
+    assert target.resolve().parent == Path("/state/smime/recipients")
+
+
+def test_verification_does_not_need_our_own_key(monkeypatch, tmp_path):
+    """Verifying somebody else's signature must not require our private key."""
+    smime_dir = tmp_path / "smime"
+    smime_dir.mkdir()
+    monkeypatch.setattr(smime.auth, "account_dir", lambda account: tmp_path)
+
+    account, paths = smime.verification_material("me@example.com")
+
+    assert account == "me@example.com"
+    # Nothing exists yet, and that is fine.
+    assert not Path(paths.key).exists()
+    assert not Path(paths.cert).exists()
+
+
+def test_trust_bundle_falls_back_to_the_system_store(tmp_path):
+    paths = smime.SmimePaths(
+        account="me@example.com",
+        directory=str(tmp_path),
+        cert=str(tmp_path / "own-cert.pem"),
+        key=str(tmp_path / "own-key.pem"),
+        ca_bundle=str(tmp_path / "missing-ca.pem"),
+        fullchain=str(tmp_path / "own-fullchain.p12"),
+        recipients_dir=str(tmp_path / "recipients"),
+        trusted_ca=str(tmp_path / "missing-trusted.pem"),
+    )
+
+    # No local material: no -CAfile, so OpenSSL uses its default store.
+    assert smime._trust_bundle(paths, tmp_path) is None
+
+
+def test_trust_bundle_combines_own_ca_and_extra_anchors(tmp_path):
+    ca_bundle = tmp_path / "ca-bundle.pem"
+    ca_bundle.write_text("-----OWN CA-----", encoding="utf-8")
+    trusted = tmp_path / "trusted-ca.pem"
+    trusted.write_text("-----EXTRA CA-----", encoding="utf-8")
+    paths = smime.SmimePaths(
+        account="me@example.com",
+        directory=str(tmp_path),
+        cert=str(tmp_path / "own-cert.pem"),
+        key=str(tmp_path / "own-key.pem"),
+        ca_bundle=str(ca_bundle),
+        fullchain=str(tmp_path / "own-fullchain.p12"),
+        recipients_dir=str(tmp_path / "recipients"),
+        trusted_ca=str(trusted),
+    )
+
+    bundle = smime._trust_bundle(paths, tmp_path)
+
+    assert bundle is not None
+    content = bundle.read_text(encoding="utf-8")
+    assert "-----OWN CA-----" in content
+    assert "-----EXTRA CA-----" in content
+
+
+def test_empty_trusted_ca_path_is_not_mistaken_for_a_file(tmp_path):
+    """SmimePaths built by callers leaves trusted_ca empty; Path("") is "."."""
+    ca_bundle = tmp_path / "ca-bundle.pem"
+    ca_bundle.write_text("-----OWN CA-----", encoding="utf-8")
+    paths = smime.SmimePaths(
+        account="me@example.com",
+        directory=str(tmp_path),
+        cert=str(tmp_path / "own-cert.pem"),
+        key=str(tmp_path / "own-key.pem"),
+        ca_bundle=str(ca_bundle),
+        fullchain=str(tmp_path / "own-fullchain.p12"),
+        recipients_dir=str(tmp_path / "recipients"),
+    )
+
+    bundle = smime._trust_bundle(paths, tmp_path)
+
+    assert bundle is not None
+    assert bundle.read_text(encoding="utf-8").strip() == "-----OWN CA-----"

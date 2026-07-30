@@ -102,6 +102,25 @@ def write_private_text(path: Path, content: str) -> None:
         temporary_path.unlink(missing_ok=True)
 
 
+# Directories already walked in this process, so that a command touching the
+# token cache, the profile and the account directory does not repeat the walk.
+_hardened_state_dirs: set[str] = set()
+
+
+def _harden_runtime_state_once() -> None:
+    """Harden the state directory at most once per process and state directory.
+
+    Permissions cannot drift while a single command runs, so repeating the
+    recursive walk on every token load only costs time -- noticeably so with
+    many imported recipient certificates.
+    """
+    key = str(STATE_DIR)
+    if key in _hardened_state_dirs:
+        return
+    harden_runtime_state()
+    _hardened_state_dirs.add(key)
+
+
 def harden_runtime_state() -> None:
     """Restrict existing runtime state to the current user on POSIX systems."""
     if not STATE_DIR.exists():
@@ -124,7 +143,7 @@ def _account_dir(email: str) -> Path:
 
 
 def account_dir(email: str) -> Path:
-    harden_runtime_state()
+    _harden_runtime_state_once()
     return ensure_private_directory(_account_dir(email))
 
 
@@ -137,7 +156,7 @@ def _profile_path(email: str) -> Path:
 
 
 def _load_cache(email: str) -> msal.SerializableTokenCache:
-    harden_runtime_state()
+    _harden_runtime_state_once()
     cache = msal.SerializableTokenCache()
     path = _token_cache_path(email)
     if path.exists():
@@ -161,7 +180,7 @@ def _app(cache: msal.SerializableTokenCache) -> msal.PublicClientApplication:
 
 
 def _active_email() -> str | None:
-    harden_runtime_state()
+    _harden_runtime_state_once()
     if not STATE_FILE.exists():
         return None
     data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -194,7 +213,7 @@ def _save_profile(account: Account) -> None:
 
 
 def _load_profile(email: str) -> Account | None:
-    harden_runtime_state()
+    _harden_runtime_state_once()
     path = _profile_path(email)
     if not path.exists():
         return None
@@ -333,13 +352,20 @@ def get_access_token(email: Optional[str] = None) -> tuple[str, Account]:
 
 
 def logout() -> bool:
+    """Drop the session for the active account.
+
+    Removes the token cache and the cached message list, which holds subjects
+    and body previews. Configuration the user set up -- profile, signatures and
+    S/MIME material -- is deliberately kept so that logging back in does not
+    mean setting the account up again.
+    """
     email = _active_email()
     if not email:
         return False
 
     if STATE_FILE.exists():
         STATE_FILE.unlink()
-    token_cache = _token_cache_path(email)
-    if token_cache.exists():
-        token_cache.unlink()
+    for path in (_token_cache_path(email), _account_dir(email) / "last-list.json"):
+        if path.exists():
+            path.unlink()
     return True

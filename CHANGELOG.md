@@ -31,3 +31,10 @@
   to text and saved the draft as a plain text message.
 - Classify `smime.p7m` attachments by content type instead of by name, so an
   encrypted message is no longer also reported as signed.
+- Verify incoming signatures against the system CA store plus an optional
+  `trusted-ca.pem`, and stop requiring an own certificate and private key for
+  verification alone.
+- Sanitize recipient addresses used as certificate filenames.
+- Remove the cached message list, which holds body previews, on `auth
+  --logout`; signatures, profile and S/MIME material are kept.
+- Harden the runtime state once per process instead of on every token load.

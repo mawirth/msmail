@@ -87,3 +87,48 @@ def test_login_writes_token_cache_under_canonical_address(monkeypatch, tmp_path)
     assert canonical.exists()
     assert "cached-token" in canonical.read_text(encoding="utf-8")
     assert stat.S_IMODE(canonical.stat().st_mode) == 0o600
+
+
+def test_logout_removes_the_cached_message_list(monkeypatch, tmp_path):
+    """last-list.json holds subjects and body previews."""
+    state_dir = _configure_state(monkeypatch, tmp_path)
+    account = state_dir / "accounts" / auth.account_key("me@example.com")
+    account.mkdir(parents=True)
+    (account / "msal-token-cache.json").write_text("token", encoding="utf-8")
+    (account / "last-list.json").write_text('[{"body_preview": "secret"}]', encoding="utf-8")
+    (account / "signature.txt").write_text("Alex", encoding="utf-8")
+    (account / "profile.json").write_text("{}", encoding="utf-8")
+    auth.write_private_text(state_dir / "auth-state.json", '{"active_account": "me@example.com"}')
+
+    assert auth.logout() is True
+
+    assert not (account / "msal-token-cache.json").exists()
+    assert not (account / "last-list.json").exists()
+    # Configuration survives, so logging back in does not mean setting up again.
+    assert (account / "signature.txt").exists()
+    assert (account / "profile.json").exists()
+
+
+def test_state_is_hardened_once_per_process(monkeypatch, tmp_path):
+    state_dir = _configure_state(monkeypatch, tmp_path)
+    state_dir.mkdir(parents=True)
+    monkeypatch.setattr(auth, "_hardened_state_dirs", set())
+    walks = []
+    monkeypatch.setattr(auth, "harden_runtime_state", lambda: walks.append(str(auth.STATE_DIR)))
+
+    for _ in range(5):
+        auth._harden_runtime_state_once()
+
+    assert walks == [str(state_dir)]
+
+
+def test_a_different_state_directory_is_hardened_again(monkeypatch, tmp_path):
+    monkeypatch.setattr(auth, "_hardened_state_dirs", set())
+    walks = []
+    monkeypatch.setattr(auth, "harden_runtime_state", lambda: walks.append(str(auth.STATE_DIR)))
+
+    for name in ("first", "second", "first"):
+        monkeypatch.setattr(auth, "STATE_DIR", tmp_path / name)
+        auth._harden_runtime_state_once()
+
+    assert walks == [str(tmp_path / "first"), str(tmp_path / "second")]

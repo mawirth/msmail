@@ -141,6 +141,7 @@ Local state is stored below:
     signature.txt
     signature.html
     smime/
+      trusted-ca.pem   # optional extra trust anchors for incoming signatures
 ```
 
 Do not commit files from this state directory.
@@ -419,6 +420,21 @@ msmail read 1 --verify-smime
 msmail read 1 --decrypt --verify-smime
 msmail read 1 --decrypt --verify-smime --json
 ```
+
+Verifying an incoming signature needs trust anchors, not your own certificate,
+and never your private key, so `--verify-smime` works without `smime setup`.
+Trusted are, in this order and combined:
+
+- the operating system's default CA store, which covers the public S/MIME CAs;
+- your own `ca-bundle.pem`, which covers correspondents using the same CA;
+- an optional `trusted-ca.pem` for anchors the system does not know, such as an
+  internal company CA:
+
+```text
+~/.local/share/msmail/accounts/<email>/smime/trusted-ca.pem
+```
+
+Decrypting, signing and encrypting still need your own certificate and key.
 
 The JSON output includes signer certificate details when verification succeeds.
 

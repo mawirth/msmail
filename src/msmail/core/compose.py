@@ -46,26 +46,8 @@ def parse_bool(value: str) -> bool:
 
 
 def parse_compose_text(content: str, *, html: bool = False) -> ComposeDraft:
-    if not content.strip():
-        raise ValueError("Compose content is empty.")
-
-    if f"\n{SEPARATOR}" in content:
-        header_part, body_part = content.split(f"\n{SEPARATOR}", 1)
-    elif content.startswith(f"{SEPARATOR}\n"):
-        header_part, body_part = "", content[len(SEPARATOR) + 1 :]
-    else:
-        raise ValueError("Compose file must contain a '---' separator before the body.")
-
-    body = body_part.lstrip("\r\n")
-    headers: dict[str, list[str]] = {}
-    for raw_line in header_part.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        if ":" not in line:
-            raise ValueError(f"Invalid compose header: {raw_line}")
-        key, value = line.split(":", 1)
-        headers.setdefault(key.strip().lower(), []).append(value.strip())
+    header_part, body = _split_compose_parts(content, require_separator=True)
+    headers = _parse_headers(header_part)
 
     attachments = []
     for value in headers.get("attach", []) + headers.get("attachments", []):
@@ -97,7 +79,12 @@ def read_compose_file(path: str, *, html: bool = False) -> ComposeDraft:
     return parse_compose_text(Path(path).read_text(encoding="utf-8"), html=html)
 
 
-def _split_compose_parts(content: str) -> tuple[str, str]:
+def _split_compose_parts(content: str, *, require_separator: bool = False) -> tuple[str, str]:
+    """Split a compose text into its header block and its body.
+
+    A compose file must announce the body with a '---' separator; a reply or
+    forward may be body-only, in which case everything is body.
+    """
     if not content.strip():
         raise ValueError("Compose content is empty.")
 
@@ -105,6 +92,8 @@ def _split_compose_parts(content: str) -> tuple[str, str]:
         header_part, body_part = content.split(f"\n{SEPARATOR}", 1)
     elif content.startswith(f"{SEPARATOR}\n"):
         header_part, body_part = "", content[len(SEPARATOR) + 1 :]
+    elif require_separator:
+        raise ValueError("Compose file must contain a '---' separator before the body.")
     else:
         return "", content
 
@@ -206,51 +195,22 @@ def response_template(
     return "\n".join(lines + [body])
 
 
-def response_interactively(
-    template: str,
-    *,
-    require_to: bool = False,
-    html: bool = False,
-) -> ResponseDraft:
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".md",
-        prefix="msmail-response-",
-        encoding="utf-8",
-        delete=False,
-    ) as handle:
-        handle.write(template)
-        path = handle.name
-
-    try:
-        command = editor_command() + [path]
-        result = subprocess.run(command, check=False)
-        if result.returncode != 0:
-            raise ValueError(f"Editor exited with status {result.returncode}. Compose file kept at {path}")
-        content = Path(path).read_text(encoding="utf-8")
-        if content == template:
-            Path(path).unlink(missing_ok=True)
-            raise ComposeCancelled("Compose cancelled; no draft created.")
-        try:
-            draft = parse_response_text(content, require_to=require_to, html=html)
-        except ValueError as exc:
-            raise ValueError(f"{exc} Compose file kept at {path}") from exc
-        Path(path).unlink(missing_ok=True)
-        return draft
-    except FileNotFoundError as exc:
-        raise ValueError(f"Editor not found: {editor_command()[0]}") from exc
-
-
 def editor_command() -> list[str]:
     editor = os.environ.get("EDITOR") or "nvim"
     return editor.split()
 
 
-def compose_interactively(template: str, *, html: bool = False) -> ComposeDraft:
+def _edit_in_editor(template: str, *, prefix: str, parse):
+    """Open the template in the configured editor and parse the result.
+
+    Returns None when the file came back unchanged; the callers decide whether
+    that counts as a cancelled compose or as "nothing to update". The temporary
+    file is kept on a parse error so the typed text is not lost.
+    """
     with tempfile.NamedTemporaryFile(
         mode="w",
         suffix=".md",
-        prefix="msmail-",
+        prefix=prefix,
         encoding="utf-8",
         delete=False,
     ) as handle:
@@ -258,38 +218,7 @@ def compose_interactively(template: str, *, html: bool = False) -> ComposeDraft:
         path = handle.name
 
     try:
-        command = editor_command() + [path]
-        result = subprocess.run(command, check=False)
-        if result.returncode != 0:
-            raise ValueError(f"Editor exited with status {result.returncode}. Compose file kept at {path}")
-        content = Path(path).read_text(encoding="utf-8")
-        if content == template:
-            Path(path).unlink(missing_ok=True)
-            raise ComposeCancelled("Compose cancelled; no draft created.")
-        try:
-            draft = parse_compose_text(content, html=html)
-        except ValueError as exc:
-            raise ValueError(f"{exc} Compose file kept at {path}") from exc
-        Path(path).unlink(missing_ok=True)
-        return draft
-    except FileNotFoundError as exc:
-        raise ValueError(f"Editor not found: {editor_command()[0]}") from exc
-
-
-def edit_compose_interactively(template: str, *, html: bool = False) -> ComposeDraft | None:
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".md",
-        prefix="msmail-draft-",
-        encoding="utf-8",
-        delete=False,
-    ) as handle:
-        handle.write(template)
-        path = handle.name
-
-    try:
-        command = editor_command() + [path]
-        result = subprocess.run(command, check=False)
+        result = subprocess.run(editor_command() + [path], check=False)
         if result.returncode != 0:
             raise ValueError(f"Editor exited with status {result.returncode}. Compose file kept at {path}")
         content = Path(path).read_text(encoding="utf-8")
@@ -297,10 +226,46 @@ def edit_compose_interactively(template: str, *, html: bool = False) -> ComposeD
             Path(path).unlink(missing_ok=True)
             return None
         try:
-            draft = parse_compose_text(content, html=html)
+            draft = parse(content)
         except ValueError as exc:
             raise ValueError(f"{exc} Compose file kept at {path}") from exc
         Path(path).unlink(missing_ok=True)
         return draft
     except FileNotFoundError as exc:
         raise ValueError(f"Editor not found: {editor_command()[0]}") from exc
+
+
+def response_interactively(
+    template: str,
+    *,
+    require_to: bool = False,
+    html: bool = False,
+) -> ResponseDraft:
+    draft = _edit_in_editor(
+        template,
+        prefix="msmail-response-",
+        parse=lambda content: parse_response_text(content, require_to=require_to, html=html),
+    )
+    if draft is None:
+        raise ComposeCancelled("Compose cancelled; no draft created.")
+    return draft
+
+
+def compose_interactively(template: str, *, html: bool = False) -> ComposeDraft:
+    draft = _edit_in_editor(
+        template,
+        prefix="msmail-",
+        parse=lambda content: parse_compose_text(content, html=html),
+    )
+    if draft is None:
+        raise ComposeCancelled("Compose cancelled; no draft created.")
+    return draft
+
+
+def edit_compose_interactively(template: str, *, html: bool = False) -> ComposeDraft | None:
+    # An unchanged file means "leave the draft alone", not "cancel".
+    return _edit_in_editor(
+        template,
+        prefix="msmail-draft-",
+        parse=lambda content: parse_compose_text(content, html=html),
+    )
