@@ -458,7 +458,8 @@ docs/
 ```
 
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and
-[docs/RELEASE.md](docs/RELEASE.md).
+[docs/RELEASE.md](docs/RELEASE.md). Known open items are collected in
+[docs/TODO.md](docs/TODO.md).
 
 ## Security
 
