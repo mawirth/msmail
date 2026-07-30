@@ -594,7 +594,7 @@ def test_create_signed_reply_uses_mime_draft(monkeypatch):
         "get_access_token",
         lambda account_email=None: ("token", Account()),
     )
-    monkeypatch.setattr(drafts.mail, "get_message", lambda message_id, account_email=None: make_detail(message_id))
+    monkeypatch.setattr(drafts.mail, "get_message", lambda message_id, account_email=None, include_attachment_details=True: make_detail(message_id))
 
     def create_draft(draft, account_email=None, include_signature=True):
         captured["draft"] = draft
@@ -685,7 +685,7 @@ def test_create_encrypted_forward_uses_mime_draft(monkeypatch):
         "get_access_token",
         lambda account_email=None: ("token", Account()),
     )
-    monkeypatch.setattr(drafts.mail, "get_message", lambda message_id, account_email=None: make_detail(message_id))
+    monkeypatch.setattr(drafts.mail, "get_message", lambda message_id, account_email=None, include_attachment_details=True: make_detail(message_id))
 
     def create_draft(draft, account_email=None, include_signature=True):
         captured["draft"] = draft

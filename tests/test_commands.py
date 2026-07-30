@@ -406,7 +406,8 @@ def test_read_verified_signed_message_renders_verified_body(monkeypatch, tmp_pat
         lambda mime_bytes, account_email=None: smime.VerifyResult(
             verified=True,
             signed=True,
-            verified_path=str(verified),
+            verified_path="",
+            data=verified.read_bytes(),
         ),
     )
 
@@ -490,3 +491,113 @@ def test_doctor_missing_signatures_are_informational(monkeypatch, tmp_path):
     assert report.ok is True
     assert doctor.DoctorLine("Signature txt", "MISSING", str(tmp_path / "me@example.com" / "signature.txt")) in report.lines
     assert doctor.DoctorLine("Signature html", "MISSING", str(tmp_path / "me@example.com" / "signature.html")) in report.lines
+
+
+def _detail(message_id, **overrides):
+    fields = dict(
+        account="me@example.com",
+        id=message_id,
+        subject="Status",
+        from_name="Alice",
+        from_address="alice@example.com",
+        to_addresses=["me@example.com"],
+        cc_addresses=[],
+        received_date_time="",
+        internet_message_id="",
+        body_content_type="text",
+        body_content="Hello",
+        body_preview="Hello",
+        has_attachments=True,
+        attachment_count=0,
+        attachments=[],
+        smime_signed=False,
+        smime_encrypted=False,
+        attachment_details_loaded=False,
+    )
+    fields.update(overrides)
+    return mail.MessageDetail(**fields)
+
+
+def _summaries(count):
+    return [
+        mail.MessageSummary(
+            account="me@example.com",
+            index=index,
+            id=f"message-{index}",
+            subject=f"Subject {index}",
+            from_name="Alice",
+            from_address="alice@example.com",
+            received_date_time="",
+            is_read=False,
+            has_attachments=True,
+            has_user_attachments=True,
+            smime_signed=False,
+            smime_encrypted=False,
+            inference_classification=None,
+            body_preview="",
+        )
+        for index in range(1, count + 1)
+    ]
+
+
+def test_delete_preview_does_not_download_attachments(monkeypatch):
+    """The preview prints sender and subject only; loading attachment details
+    would pull every attachment body down with it."""
+    captured = []
+    monkeypatch.setattr(
+        mail,
+        "resolve_message_reference_items",
+        lambda reference, account_email=None: (_summaries(3), "me@example.com"),
+    )
+
+    def get_message(message_id, account_email=None, include_attachment_details=True):
+        captured.append(include_attachment_details)
+        return _detail(message_id)
+
+    monkeypatch.setattr(mail, "get_message", get_message)
+    monkeypatch.setattr(
+        mail,
+        "delete_message",
+        lambda reference, account_email=None: mail.MessageOperationResult(
+            account="me@example.com",
+            id=reference,
+            subject="Status",
+            from_address="alice@example.com",
+        ),
+    )
+
+    result = runner.invoke(app, ["delete", "1-3", "--yes"])
+
+    assert result.exit_code == 0
+    assert captured == [False, False, False]
+
+
+def test_move_preview_does_not_download_attachments(monkeypatch):
+    captured = []
+    monkeypatch.setattr(
+        mail,
+        "resolve_message_reference_items",
+        lambda reference, account_email=None: (_summaries(2), "me@example.com"),
+    )
+
+    def get_message(message_id, account_email=None, include_attachment_details=True):
+        captured.append(include_attachment_details)
+        return _detail(message_id)
+
+    monkeypatch.setattr(mail, "get_message", get_message)
+    monkeypatch.setattr(
+        mail,
+        "move_message",
+        lambda reference, destination_folder, destination_folder_id=None, account_email=None: mail.MessageOperationResult(
+            account="me@example.com",
+            id=reference,
+            subject="Status",
+            from_address="alice@example.com",
+            destination_folder="deleteditems",
+        ),
+    )
+
+    result = runner.invoke(app, ["move", "1-2", "--folder", "deleted", "--yes"])
+
+    assert result.exit_code == 0
+    assert captured == [False, False]

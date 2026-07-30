@@ -256,12 +256,12 @@ def login(
     account = _profile_from_me(normalized, me, result)
     _save_cache(normalized, cache)
 
-    # If Graph reports a different primary address, move the cache to that key
-    # as the canonical account reference.
+    # If Graph reports a different primary address, copy the cache to that key
+    # as the canonical account reference. Write it out directly: deserialize()
+    # resets has_state_changed, so _save_cache would skip the write and leave
+    # the active account pointing at a key without a token cache.
     if account.email != normalized:
-        canonical_cache = _load_cache(account.email)
-        canonical_cache.deserialize(cache.serialize())
-        _save_cache(account.email, canonical_cache)
+        write_private_text(_token_cache_path(account.email), cache.serialize())
 
     _save_profile(account)
     _set_active(account.email)

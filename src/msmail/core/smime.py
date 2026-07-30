@@ -77,6 +77,7 @@ class VerifyResult:
     signer_path: str | None = None
     signer_certificate: CertificateInfo | None = None
     error: str | None = None
+    data: bytes | None = None
 
 
 @dataclass(frozen=True)
@@ -85,6 +86,7 @@ class DecryptResult:
     encrypted_path: str
     decrypted_path: str
     error: str | None = None
+    data: bytes | None = None
 
 
 def resolve_account_email(account_email: Optional[str] = None) -> str:
@@ -193,6 +195,40 @@ def _copy_cert(source: str | Path, target: Path) -> None:
 def _ensure_private_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
     path.chmod(0o700)
+
+
+TEMP_PREFIX = "msmail-smime-"
+
+
+def _working_dir(output_dir: Optional[str], prefix: str) -> tuple[Path, bool]:
+    """Return a working directory plus whether we own it and must remove it.
+
+    A caller-supplied `output_dir` belongs to the caller and is never removed;
+    it is meant for inspecting intermediate files. Directories we create hold
+    cleartext and are discarded once the bytes have been read.
+    """
+    if output_dir:
+        directory = Path(output_dir).expanduser()
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory, False
+    return Path(tempfile.mkdtemp(prefix=prefix)), True
+
+
+def discard_working_dir(directory: str | Path) -> None:
+    """Remove one of our own temporary directories and the cleartext in it.
+
+    Refuses anything that does not carry our prefix so a caller cannot delete
+    an unrelated directory by passing the wrong path.
+    """
+    path = Path(directory)
+    if not path.name.startswith(TEMP_PREFIX):
+        return
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def _discard(directory: Path, owned: bool) -> None:
+    if owned:
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 def setup(
@@ -478,29 +514,35 @@ def sign_mime(
     output_dir: Optional[str] = None,
 ) -> tuple[str, str]:
     _account, paths = require_configured(account_email)
-    directory = Path(output_dir).expanduser() if output_dir else Path(tempfile.mkdtemp(prefix="msmail-smime-"))
-    directory.mkdir(parents=True, exist_ok=True)
+    # The caller reads the signed bytes and is responsible for calling
+    # discard_working_dir(); unsigned.eml holds outgoing cleartext.
+    directory, owned = _working_dir(output_dir, TEMP_PREFIX)
     unsigned_path = directory / "unsigned.eml"
     signed_path = directory / "signed.eml"
     unsigned_path.write_bytes(mime_bytes)
-    _run_openssl_file(
-        [
-            "smime",
-            "-sign",
-            "-in",
-            str(unsigned_path),
-            "-signer",
-            paths.cert,
-            "-inkey",
-            paths.key,
-            "-certfile",
-            paths.ca_bundle,
-            "-out",
-            str(signed_path),
-            "-outform",
-            "SMIME",
-        ]
-    )
+    try:
+        _run_openssl_file(
+            [
+                "smime",
+                "-sign",
+                "-in",
+                str(unsigned_path),
+                "-signer",
+                paths.cert,
+                "-inkey",
+                paths.key,
+                "-certfile",
+                paths.ca_bundle,
+                "-out",
+                str(signed_path),
+                "-outform",
+                "SMIME",
+            ]
+        )
+    except BaseException:
+        # The caller never sees the path, so it could not clean up itself.
+        _discard(directory, owned)
+        raise
     return str(unsigned_path), str(signed_path)
 
 
@@ -513,25 +555,31 @@ def encrypt_mime(
 ) -> tuple[str, str]:
     account_email, _paths = require_configured(account_email)
     certs = recipient_certificates(recipients, account_email=account_email)
-    directory = Path(output_dir).expanduser() if output_dir else Path(tempfile.mkdtemp(prefix="msmail-smime-"))
-    directory.mkdir(parents=True, exist_ok=True)
+    # The caller reads the encrypted bytes and is responsible for calling
+    # discard_working_dir(); clear.eml holds outgoing cleartext.
+    directory, owned = _working_dir(output_dir, TEMP_PREFIX)
     clear_path = directory / "clear.eml"
     encrypted_path = directory / "encrypted.eml"
     clear_path.write_bytes(mime_bytes)
-    _run_openssl_file(
-        [
-            "smime",
-            "-encrypt",
-            "-aes256",
-            "-in",
-            str(clear_path),
-            "-out",
-            str(encrypted_path),
-            "-outform",
-            "SMIME",
-            *certs,
-        ]
-    )
+    try:
+        _run_openssl_file(
+            [
+                "smime",
+                "-encrypt",
+                "-aes256",
+                "-in",
+                str(clear_path),
+                "-out",
+                str(encrypted_path),
+                "-outform",
+                "SMIME",
+                *certs,
+            ]
+        )
+    except BaseException:
+        # The caller never sees the path, so it could not clean up itself.
+        _discard(directory, owned)
+        raise
     return str(clear_path), str(encrypted_path)
 
 
@@ -542,38 +590,45 @@ def decrypt_mime_bytes(
     output_dir: Optional[str] = None,
 ) -> DecryptResult:
     _account, paths = require_configured(account_email)
-    directory = Path(output_dir).expanduser() if output_dir else Path(tempfile.mkdtemp(prefix="msmail-smime-decrypt-"))
-    directory.mkdir(parents=True, exist_ok=True)
+    directory, owned = _working_dir(output_dir, TEMP_PREFIX + "decrypt-")
     encrypted_path = directory / "encrypted.eml"
     decrypted_path = directory / "decrypted.eml"
+    # Paths are only reported back when the caller owns the directory; our own
+    # temporary directory is gone by the time this returns.
+    reported_encrypted = "" if owned else str(encrypted_path)
+    reported_decrypted = "" if owned else str(decrypted_path)
     encrypted_path.write_bytes(mime_bytes)
     try:
-        _run_openssl_file(
-            [
-                "smime",
-                "-decrypt",
-                "-in",
-                str(encrypted_path),
-                "-recip",
-                paths.cert,
-                "-inkey",
-                paths.key,
-                "-out",
-                str(decrypted_path),
-            ]
-        )
-    except ValueError as exc:
+        try:
+            _run_openssl_file(
+                [
+                    "smime",
+                    "-decrypt",
+                    "-in",
+                    str(encrypted_path),
+                    "-recip",
+                    paths.cert,
+                    "-inkey",
+                    paths.key,
+                    "-out",
+                    str(decrypted_path),
+                ]
+            )
+        except ValueError as exc:
+            return DecryptResult(
+                decrypted=False,
+                encrypted_path=reported_encrypted,
+                decrypted_path=reported_decrypted,
+                error=str(exc),
+            )
         return DecryptResult(
-            decrypted=False,
-            encrypted_path=str(encrypted_path),
-            decrypted_path=str(decrypted_path),
-            error=str(exc),
+            decrypted=True,
+            encrypted_path=reported_encrypted,
+            decrypted_path=reported_decrypted,
+            data=decrypted_path.read_bytes(),
         )
-    return DecryptResult(
-        decrypted=True,
-        encrypted_path=str(encrypted_path),
-        decrypted_path=str(decrypted_path),
-    )
+    finally:
+        _discard(directory, owned)
 
 
 def verify_signed_mime(
@@ -608,46 +663,57 @@ def verify_signed_mime_bytes(
     output_dir: Optional[str] = None,
 ) -> VerifyResult:
     _account, paths = require_configured(account_email)
-    directory = Path(output_dir).expanduser() if output_dir else Path(tempfile.mkdtemp(prefix="msmail-smime-verify-"))
-    directory.mkdir(parents=True, exist_ok=True)
+    directory, owned = _working_dir(output_dir, TEMP_PREFIX + "verify-")
     signed_path = directory / "incoming.eml"
     verified_path = directory / "verified.eml"
     signer_path = directory / "signer.pem"
     signed_path.write_bytes(mime_bytes)
-    try:
-        _run_openssl_file(
-            [
-                "smime",
-                "-verify",
-                "-in",
-                str(signed_path),
-                "-CAfile",
-                paths.ca_bundle,
-                "-signer",
-                str(signer_path),
-                "-out",
-                str(verified_path),
-            ]
-        )
-    except ValueError as exc:
-        return VerifyResult(
-            verified=False,
-            signed=b"multipart/signed" in mime_bytes.lower()
-            or b"application/pkcs7-signature" in mime_bytes.lower()
-            or b"application/x-pkcs7-signature" in mime_bytes.lower(),
-            verified_path=str(verified_path),
-            signer_path=str(signer_path) if signer_path.exists() else None,
-            error=str(exc),
-        )
 
-    signer_info = certificate_info(signer_path) if signer_path.exists() else None
-    return VerifyResult(
-        verified=True,
-        signed=True,
-        verified_path=str(verified_path),
-        signer_path=str(signer_path) if signer_path.exists() else None,
-        signer_certificate=signer_info,
-    )
+    def reported_signer() -> str | None:
+        if owned or not signer_path.exists():
+            return None
+        return str(signer_path)
+
+    reported_verified = "" if owned else str(verified_path)
+    try:
+        try:
+            _run_openssl_file(
+                [
+                    "smime",
+                    "-verify",
+                    "-in",
+                    str(signed_path),
+                    "-CAfile",
+                    paths.ca_bundle,
+                    "-signer",
+                    str(signer_path),
+                    "-out",
+                    str(verified_path),
+                ]
+            )
+        except ValueError as exc:
+            return VerifyResult(
+                verified=False,
+                signed=b"multipart/signed" in mime_bytes.lower()
+                or b"application/pkcs7-signature" in mime_bytes.lower()
+                or b"application/x-pkcs7-signature" in mime_bytes.lower(),
+                verified_path=reported_verified,
+                signer_path=reported_signer(),
+                error=str(exc),
+            )
+
+        # Read the signer certificate before the directory is discarded.
+        signer_info = certificate_info(signer_path) if signer_path.exists() else None
+        return VerifyResult(
+            verified=True,
+            signed=True,
+            verified_path=reported_verified,
+            signer_path=reported_signer(),
+            signer_certificate=signer_info,
+            data=verified_path.read_bytes(),
+        )
+    finally:
+        _discard(directory, owned)
 
 
 def local_sign_verify_smoke(

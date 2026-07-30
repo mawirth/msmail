@@ -19,3 +19,11 @@
   unattended scripts and services.
 - Restrict POSIX runtime directories to `0700` and runtime files, including the
   MSAL token cache, to `0600`, repairing existing state automatically.
+- Fix login leaving no usable token cache when Graph reports a different
+  primary address than the one used to log in.
+- Remove S/MIME working directories after use, so decrypted incoming mail and
+  outgoing cleartext no longer accumulate below `/tmp`.
+- Skip attachment detail lookups in `delete` and `move` previews, which
+  downloaded every attachment body just to print sender and subject.
+- Retry throttled Graph requests (HTTP 429, 503) with `Retry-After`
+  backoff, and follow `@odata.nextLink` when listing mail folders.

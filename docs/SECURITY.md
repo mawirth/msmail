@@ -56,9 +56,15 @@ msmail read 1 --decrypt
 msmail save-attachments 1 --decrypt
 ```
 
-OpenSSL helper files are currently written below `/tmp`. They may contain
-decrypted message content. Avoid S/MIME decrypt operations on shared systems or
-systems where `/tmp` is not adequately protected.
+OpenSSL helper files are written to a private working directory below `/tmp`
+(mode `0700`) and removed again once the result has been read, so decrypted
+mail and outgoing cleartext are not left behind. The content still passes
+through `/tmp`; on shared systems, or where `/tmp` is not adequately protected,
+prefer a `TMPDIR` on local, user-owned storage.
+
+`msmail smime test-sign --output-dir` and the other `--output-dir` options are
+the exception: a directory you name yourself belongs to you and is kept for
+inspection, including whatever cleartext it holds.
 
 ## Reporting Vulnerabilities
 

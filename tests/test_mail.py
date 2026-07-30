@@ -179,7 +179,7 @@ def test_delete_message_calls_graph_and_updates_last_list(monkeypatch, tmp_path)
         lambda account_email=None: ("token", Account()),
     )
     mail.save_last_list("me@example.com", [make_summary(1, "message/id")])
-    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None: make_detail(message_id))
+    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None, include_attachment_details=True: make_detail(message_id))
 
     def delete_empty(path, access_token):
         deleted["path"] = path
@@ -206,7 +206,7 @@ def test_move_message_calls_graph_and_updates_last_list(monkeypatch, tmp_path):
         lambda account_email=None: ("token", Account()),
     )
     mail.save_last_list("me@example.com", [make_summary(1, "message/id")])
-    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None: make_detail(message_id))
+    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None, include_attachment_details=True: make_detail(message_id))
 
     def post_json(path, access_token, body):
         posted["path"] = path
@@ -238,7 +238,7 @@ def test_move_message_can_use_graph_folder_id(monkeypatch, tmp_path):
         lambda account_email=None: ("token", Account()),
     )
     mail.save_last_list("me@example.com", [make_summary(1, "message/id")])
-    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None: make_detail(message_id))
+    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None, include_attachment_details=True: make_detail(message_id))
 
     def post_json(path, access_token, body):
         posted["body"] = body
@@ -448,7 +448,7 @@ def test_mark_message_patches_read_state_and_updates_last_list(monkeypatch, tmp_
         lambda account_email=None: ("token", Account()),
     )
     mail.save_last_list("me@example.com", [make_summary(1, "message/id")])
-    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None: make_detail(message_id))
+    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None, include_attachment_details=True: make_detail(message_id))
 
     def patch_json(path, access_token, body):
         patched["path"] = path
@@ -502,7 +502,7 @@ def test_save_attachments_writes_file_attachments(monkeypatch, tmp_path):
         lambda account_email=None: ("token", Account()),
     )
     monkeypatch.setattr(mail, "resolve_message_reference", lambda reference, account_email=None: ("message/id", "me@example.com"))
-    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None: make_detail(message_id))
+    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None, include_attachment_details=True: make_detail(message_id))
 
     def get_json(path, access_token, params=None):
         assert path == "/me/messages/message%2Fid/attachments"
@@ -552,7 +552,7 @@ def test_save_attachments_can_include_inline_file_attachments(monkeypatch, tmp_p
         lambda account_email=None: ("token", Account()),
     )
     monkeypatch.setattr(mail, "resolve_message_reference", lambda reference, account_email=None: ("message/id", "me@example.com"))
-    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None: make_detail(message_id))
+    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None, include_attachment_details=True: make_detail(message_id))
     monkeypatch.setattr(
         mail.graph,
         "get_json",
@@ -583,7 +583,7 @@ def test_save_attachments_uses_unique_filename_without_overwrite(monkeypatch, tm
         lambda account_email=None: ("token", Account()),
     )
     monkeypatch.setattr(mail, "resolve_message_reference", lambda reference, account_email=None: ("message/id", "me@example.com"))
-    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None: make_detail(message_id))
+    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None, include_attachment_details=True: make_detail(message_id))
     monkeypatch.setattr(
         mail.graph,
         "get_json",
@@ -624,7 +624,7 @@ def test_save_attachments_can_decrypt_smime_container(monkeypatch, tmp_path):
         b"--mix--\r\n"
     )
     monkeypatch.setattr(mail, "resolve_message_reference", lambda reference, account_email=None: ("message/id", "me@example.com"))
-    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None: make_detail(message_id))
+    monkeypatch.setattr(mail, "get_message", lambda message_id, account_email=None, include_attachment_details=True: make_detail(message_id))
     monkeypatch.setattr(
         mail.auth,
         "get_access_token",
@@ -636,8 +636,9 @@ def test_save_attachments_can_decrypt_smime_container(monkeypatch, tmp_path):
         "decrypt_mime_bytes",
         lambda mime_bytes, account_email=None: mail.smime.DecryptResult(
             decrypted=True,
-            encrypted_path=str(tmp_path / "encrypted.eml"),
-            decrypted_path=str(decrypted),
+            encrypted_path="",
+            decrypted_path="",
+            data=decrypted.read_bytes(),
         ),
     )
 

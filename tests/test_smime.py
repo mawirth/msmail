@@ -499,3 +499,112 @@ def test_verify_signed_mime_bytes_reports_failed_signature(monkeypatch, tmp_path
     assert result.verified is False
     assert result.signed is True
     assert result.error == "openssl failed: bad signature"
+
+
+def _fake_paths(tmp_path):
+    smime_dir = tmp_path / "smime"
+    smime_dir.mkdir(exist_ok=True)
+    ca_bundle = smime_dir / "ca-bundle.pem"
+    ca_bundle.write_text("ca", encoding="utf-8")
+    return smime.SmimePaths(
+        account="me@example.com",
+        directory=str(smime_dir),
+        cert=str(smime_dir / "own-cert.pem"),
+        key=str(smime_dir / "own-key.pem"),
+        ca_bundle=str(ca_bundle),
+        fullchain=str(smime_dir / "own-fullchain.p12"),
+        recipients_dir=str(smime_dir / "recipients"),
+    )
+
+
+def test_decrypt_removes_its_own_working_directory(monkeypatch, tmp_path):
+    paths = _fake_paths(tmp_path)
+    monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    seen = {}
+
+    def run_openssl_file(args):
+        out = Path(args[args.index("-out") + 1])
+        seen["directory"] = out.parent
+        out.write_bytes(b"decrypted body")
+
+    monkeypatch.setattr(smime, "_run_openssl_file", run_openssl_file)
+
+    result = smime.decrypt_mime_bytes(b"encrypted", account_email="me@example.com")
+
+    assert result.decrypted is True
+    assert result.data == b"decrypted body"
+    # No cleartext left behind, and no path handed out that points at it.
+    assert not seen["directory"].exists()
+    assert result.decrypted_path == ""
+    assert result.encrypted_path == ""
+
+
+def test_decrypt_failure_also_removes_the_working_directory(monkeypatch, tmp_path):
+    paths = _fake_paths(tmp_path)
+    monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    seen = {}
+
+    def run_openssl_file(args):
+        seen["directory"] = Path(args[args.index("-out") + 1]).parent
+        raise ValueError("openssl failed: no recipient matches")
+
+    monkeypatch.setattr(smime, "_run_openssl_file", run_openssl_file)
+
+    result = smime.decrypt_mime_bytes(b"encrypted", account_email="me@example.com")
+
+    assert result.decrypted is False
+    assert not seen["directory"].exists()
+
+
+def test_verify_removes_its_own_working_directory(monkeypatch, tmp_path):
+    paths = _fake_paths(tmp_path)
+    monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    seen = {}
+
+    def run_openssl_file(args):
+        out = Path(args[args.index("-out") + 1])
+        seen["directory"] = out.parent
+        out.write_bytes(b"verified body")
+
+    monkeypatch.setattr(smime, "_run_openssl_file", run_openssl_file)
+
+    result = smime.verify_signed_mime_bytes(
+        b"Content-Type: multipart/signed\r\n\r\nbody",
+        account_email="me@example.com",
+    )
+
+    assert result.verified is True
+    assert result.data == b"verified body"
+    assert not seen["directory"].exists()
+    assert result.verified_path == ""
+
+
+def test_caller_supplied_output_dir_is_kept(monkeypatch, tmp_path):
+    paths = _fake_paths(tmp_path)
+    monkeypatch.setattr(smime, "require_configured", lambda account_email=None: ("me@example.com", paths))
+    monkeypatch.setattr(
+        smime,
+        "_run_openssl_file",
+        lambda args: Path(args[args.index("-out") + 1]).write_bytes(b"decrypted body"),
+    )
+    output_dir = tmp_path / "keep"
+
+    result = smime.decrypt_mime_bytes(
+        b"encrypted",
+        account_email="me@example.com",
+        output_dir=str(output_dir),
+    )
+
+    assert output_dir.exists()
+    assert result.decrypted_path == str(output_dir / "decrypted.eml")
+    assert Path(result.decrypted_path).read_bytes() == b"decrypted body"
+
+
+def test_discard_working_dir_refuses_foreign_directories(tmp_path):
+    foreign = tmp_path / "important"
+    foreign.mkdir()
+    (foreign / "keep.txt").write_text("keep", encoding="utf-8")
+
+    smime.discard_working_dir(foreign)
+
+    assert (foreign / "keep.txt").exists()

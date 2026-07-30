@@ -272,21 +272,30 @@ def _post_smime_draft(
         attachments=_attachment_mime_parts(attachments),
     )
 
-    if draft.sign:
-        _unsigned_path, signed_path = smime.sign_mime(
-            mime_entity,
-            account_email=account_email,
-        )
-        mime_entity = Path(signed_path).read_bytes()
+    # sign_mime/encrypt_mime leave the outgoing cleartext (unsigned.eml,
+    # clear.eml) in a working directory; discard it once the bytes are read.
+    working_dirs: list[Path] = []
+    try:
+        if draft.sign:
+            _unsigned_path, signed_path = smime.sign_mime(
+                mime_entity,
+                account_email=account_email,
+            )
+            working_dirs.append(Path(signed_path).parent)
+            mime_entity = Path(signed_path).read_bytes()
 
-    if draft.encrypt:
-        recipients = draft.to + draft.cc + draft.bcc
-        _clear_path, encrypted_path = smime.encrypt_mime(
-            mime_entity,
-            recipients=recipients,
-            account_email=account_email,
-        )
-        mime_entity = Path(encrypted_path).read_bytes()
+        if draft.encrypt:
+            recipients = draft.to + draft.cc + draft.bcc
+            _clear_path, encrypted_path = smime.encrypt_mime(
+                mime_entity,
+                recipients=recipients,
+                account_email=account_email,
+            )
+            working_dirs.append(Path(encrypted_path).parent)
+            mime_entity = Path(encrypted_path).read_bytes()
+    finally:
+        for working_dir in working_dirs:
+            smime.discard_working_dir(working_dir)
 
     mime_message = smime.wrap_mime_entity(
         sender=account_email,

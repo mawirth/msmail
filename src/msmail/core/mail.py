@@ -508,7 +508,7 @@ def list_folders(
     select = "id,displayName,parentFolderId,childFolderCount,totalItemCount,unreadItemCount"
 
     def fetch(path: str, depth: int) -> list[FolderInfo]:
-        response = graph.get_json(
+        page = graph.get_all_pages(
             path,
             access_token,
             params={
@@ -517,7 +517,7 @@ def list_folders(
             },
         )
         folders = []
-        for folder in response.get("value") or []:
+        for folder in page:
             child_count = int(folder.get("childFolderCount") or 0)
             info = FolderInfo(
                 account=account.email,
@@ -677,7 +677,11 @@ def _operation_summary(message: MessageDetail, destination_folder: Optional[str]
 
 def delete_message(reference: str, account_email: Optional[str] = None) -> MessageOperationResult:
     message_id, resolved_account = resolve_message_reference(reference, account_email)
-    message = get_message(message_id, account_email=resolved_account)
+    message = get_message(
+        message_id,
+        account_email=resolved_account,
+        include_attachment_details=False,
+    )
     access_token, account = auth.get_access_token(resolved_account)
     message_path_id = graph.quote_path_segment(message.id)
     graph.delete_empty(f"/me/messages/{message_path_id}", access_token)
@@ -693,7 +697,11 @@ def move_message(
 ) -> MessageOperationResult:
     folder_id = destination_folder_id or normalize_folder(destination_folder)
     message_id, resolved_account = resolve_message_reference(reference, account_email)
-    message = get_message(message_id, account_email=resolved_account)
+    message = get_message(
+        message_id,
+        account_email=resolved_account,
+        include_attachment_details=False,
+    )
     access_token, account = auth.get_access_token(resolved_account)
     message_path_id = graph.quote_path_segment(message.id)
     response = graph.post_json(
@@ -719,7 +727,11 @@ def mark_message(
     account_email: Optional[str] = None,
 ) -> MessageOperationResult:
     message_id, resolved_account = resolve_message_reference(reference, account_email)
-    message = get_message(message_id, account_email=resolved_account)
+    message = get_message(
+        message_id,
+        account_email=resolved_account,
+        include_attachment_details=False,
+    )
     access_token, account = auth.get_access_token(resolved_account)
     message_path_id = graph.quote_path_segment(message.id)
     graph.patch_json(
@@ -763,7 +775,11 @@ def save_attachments(
     account_email: Optional[str] = None,
 ) -> SaveAttachmentsResult:
     message_id, resolved_account = resolve_message_reference(reference, account_email)
-    message = get_message(message_id, account_email=resolved_account)
+    message = get_message(
+        message_id,
+        account_email=resolved_account,
+        include_attachment_details=False,
+    )
     access_token, account = auth.get_access_token(resolved_account)
 
     destination_path = Path(destination).expanduser()
@@ -776,12 +792,12 @@ def save_attachments(
         decrypt_result = smime.decrypt_mime_bytes(mime_bytes, account_email=account.email)
         if not decrypt_result.decrypted:
             raise ValueError(decrypt_result.error or "S/MIME decryption failed.")
-        clear_bytes = Path(decrypt_result.decrypted_path).read_bytes()
+        clear_bytes = decrypt_result.data or b""
         if verify_smime:
             verify_result = smime.verify_signed_mime_bytes(clear_bytes, account_email=account.email)
             if not verify_result.verified:
                 raise ValueError(verify_result.error or "S/MIME signature verification failed.")
-            clear_bytes = Path(verify_result.verified_path).read_bytes()
+            clear_bytes = verify_result.data or clear_bytes
         saved = [
             SavedAttachment(name=name, path=str(path), size=size)
             for name, path, size in mime.save_attachments(

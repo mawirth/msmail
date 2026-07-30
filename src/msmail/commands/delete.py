@@ -48,7 +48,16 @@ def delete_message(
             account_email=account,
         )
         resolved_ids = [item.id for item in items]
-        previews = [mail.get_message(resolved_id, account_email=resolved_account) for resolved_id in resolved_ids]
+        # The preview only shows sender and subject; loading attachment details
+        # would download every attachment body just to print two lines.
+        previews = [
+            mail.get_message(
+                resolved_id,
+                account_email=resolved_account,
+                include_attachment_details=False,
+            )
+            for resolved_id in resolved_ids
+        ]
     except (ValueError, graph.GraphError) as exc:
         raise typer.BadParameter(str(exc)) from exc
 

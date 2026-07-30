@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
-from pathlib import Path
 from typing import Optional
 
 import typer
@@ -151,7 +150,7 @@ def read_message(
                 account_email=mime_account,
             )
             if decrypt_result.decrypted:
-                decrypted_bytes = Path(decrypt_result.decrypted_path).read_bytes()
+                decrypted_bytes = decrypt_result.data or b""
                 body_source = decrypted_bytes
                 if verify_smime:
                     smime_result = smime.verify_signed_mime_bytes(
@@ -159,7 +158,7 @@ def read_message(
                         account_email=mime_account,
                     )
                     if smime_result.verified:
-                        body_source = Path(smime_result.verified_path).read_bytes()
+                        body_source = smime_result.data or body_source
                 decrypted_body, decrypted_body_type, decrypted_attachments = mime.body_from_mime(
                     body_source,
                     raw_html,
@@ -169,7 +168,7 @@ def read_message(
                 mime_bytes,
                 account_email=mime_account,
             )
-            body_source = Path(smime_result.verified_path).read_bytes() if smime_result.verified else mime_bytes
+            body_source = (smime_result.data or mime_bytes) if smime_result.verified else mime_bytes
             mime_body, mime_body_type, mime_attachments = mime.body_from_mime(
                 body_source,
                 raw_html,
@@ -197,7 +196,8 @@ def read_message(
                 {
                     "decrypted": decrypt_result.decrypted,
                     "decrypt_error": decrypt_result.error,
-                    "decrypted_path": decrypt_result.decrypted_path if decrypt_result.decrypted else None,
+                    # Empty unless --output-dir kept the working files around.
+                    "decrypted_path": (decrypt_result.decrypted_path or None) if decrypt_result.decrypted else None,
                 }
             )
         if smime_result is not None:
@@ -207,7 +207,7 @@ def read_message(
                     "verified": smime_result.verified,
                     "trusted": smime_result.verified,
                     "error": smime_result.error,
-                    "verified_path": smime_result.verified_path,
+                    "verified_path": smime_result.verified_path or None,
                     "signer_path": smime_result.signer_path,
                     "signer_certificate": asdict(smime_result.signer_certificate)
                     if smime_result.signer_certificate
