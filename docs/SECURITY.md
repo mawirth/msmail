@@ -74,8 +74,23 @@ inspection, including whatever cleartext it holds.
 
 ## Reporting Vulnerabilities
 
-Until a public vulnerability-reporting address is chosen, do not file public
-issues containing secrets, tokens, private keys or full private message
-content. Use a private channel to the maintainer.
+Report security problems privately, through GitHub's private vulnerability
+reporting: open the repository's **Security** tab and choose **Report a
+vulnerability**. That creates a private advisory visible only to you and the
+maintainer, so no address has to be published and nothing is disclosed while
+the issue is still open.
 
-Before public release, add a concrete contact address here.
+Please do not open a normal issue for a security problem, and never put
+secrets, tokens, private keys, certificates or full private message content
+into any issue, pull request or advisory. A description of the problem and the
+steps to reproduce it are enough; if a sample is genuinely required, redact it
+first.
+
+There is no service to attack here: `msmail` runs on your own machine against
+your own mailbox. The interesting reports are therefore about the local
+handling of credentials and cleartext -- token cache, private keys, decrypted
+mail, temporary files -- or about a command doing something other than what it
+says.
+
+This is a pre-release project maintained by one person in their spare time.
+Expect an acknowledgement rather than an immediate fix.
