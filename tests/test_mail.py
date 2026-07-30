@@ -279,7 +279,7 @@ def test_search_messages_calls_graph_search_and_saves_last_list(monkeypatch, tmp
 
     monkeypatch.setattr(mail.graph, "get_json", get_json)
 
-    result = mail.search_messages("status", limit=10)
+    result = mail.search_messages("status", fetch=10).messages
 
     assert result[0].subject == "Status"
     assert captured["path"] == "/me/messages"
@@ -315,7 +315,7 @@ def test_list_messages_does_not_fetch_attachment_details_by_default(monkeypatch,
 
     monkeypatch.setattr(mail.graph, "get_json", get_json)
 
-    result = mail.list_messages()
+    result = mail.list_messages().messages
 
     assert calls == ["/me/mailFolders/inbox/messages"]
     assert result[0].has_attachments is True
@@ -365,7 +365,7 @@ def test_list_messages_can_fetch_attachment_details(monkeypatch, tmp_path):
 
     monkeypatch.setattr(mail.graph, "get_json", get_json)
 
-    result = mail.list_messages(include_attachment_details=True)
+    result = mail.list_messages(include_attachment_details=True).messages
 
     assert calls == [
         "/me/mailFolders/inbox/messages",

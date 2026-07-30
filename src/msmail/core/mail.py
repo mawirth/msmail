@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, time, timezone
 import json
 from pathlib import Path
@@ -79,6 +79,23 @@ class MessageDetail:
 
 
 @dataclass(frozen=True)
+class MessageList:
+    """One page of a listing plus what is needed to continue it.
+
+    `offset` counts the messages that came before this page, so the display can
+    say which part of the mailbox is on screen even though the indexes always
+    restart at 1. `next_link` is the Graph continuation cursor, or None when
+    there is nothing left to fetch.
+    """
+
+    messages: list[MessageSummary]
+    next_link: Optional[str] = None
+    offset: int = 0
+    source: str = "list"
+    truncated: bool = False
+
+
+@dataclass(frozen=True)
 class MessageOperationResult:
     account: str
     id: str
@@ -113,6 +130,31 @@ class SaveAttachmentsResult:
     subject: str
     saved: list[SavedAttachment]
     skipped: int
+
+
+LIST_SELECT = ",".join(
+    [
+        "id",
+        "subject",
+        "from",
+        "receivedDateTime",
+        "isRead",
+        "hasAttachments",
+        "inferenceClassification",
+        "bodyPreview",
+    ]
+)
+
+# Messages requested per Graph call, and the ceiling for an unbounded fetch.
+# Reaching the ceiling is reported rather than silently truncating.
+PAGE_SIZE = 100
+MAX_PAGES = 50
+
+
+def _page_size(fetch: Optional[int]) -> int:
+    if fetch is None:
+        return PAGE_SIZE
+    return max(1, min(fetch, PAGE_SIZE))
 
 
 def normalize_folder(folder: str) -> Folder:
@@ -199,58 +241,101 @@ def _last_list_path(account_email: str) -> Path:
     return auth.account_dir(account_email) / "last-list.json"
 
 
-def save_last_list(account_email: str, messages: list[MessageSummary]) -> None:
+def save_last_list(
+    account_email: str,
+    messages: list[MessageSummary],
+    *,
+    next_link: Optional[str] = None,
+    offset: int = 0,
+    source: str = "list",
+) -> None:
     path = _last_list_path(account_email)
     auth.write_private_text(
         path,
-        json.dumps([asdict(message) for message in messages], indent=2) + "\n",
+        json.dumps(
+            {
+                "source": source,
+                "offset": offset,
+                "next_link": next_link,
+                "messages": [asdict(message) for message in messages],
+            },
+            indent=2,
+        )
+        + "\n",
+    )
+
+
+def _summary_from_cache(item: dict[str, Any]) -> MessageSummary:
+    # Tolerate a cache written by an older version: unknown keys are dropped and
+    # missing ones fall back, so a stale file degrades instead of crashing.
+    fields = {name: item.get(name) for name in MessageSummary.__dataclass_fields__}
+    fields["index"] = int(fields.get("index") or 0)
+    fields["id"] = fields.get("id") or ""
+    for name in ("account", "subject", "from_name", "from_address", "received_date_time", "body_preview"):
+        fields[name] = fields.get(name) or ""
+    for name in ("is_read", "has_attachments", "has_user_attachments", "smime_signed", "smime_encrypted"):
+        fields[name] = bool(fields.get(name))
+    return MessageSummary(**fields)
+
+
+def load_last_list_state(account_email: str) -> MessageList:
+    path = _last_list_path(account_email)
+    if not path.exists():
+        raise ValueError("No last list found. Run: msmail list")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise ValueError("The cached list is unreadable. Run: msmail list") from exc
+
+    # Before paging the file was a bare array of messages.
+    if isinstance(data, list):
+        return MessageList(messages=[_summary_from_cache(item) for item in data])
+    if not isinstance(data, dict):
+        raise ValueError("The cached list is unreadable. Run: msmail list")
+
+    return MessageList(
+        messages=[_summary_from_cache(item) for item in data.get("messages") or []],
+        next_link=data.get("next_link") or None,
+        offset=int(data.get("offset") or 0),
+        source=data.get("source") or "list",
     )
 
 
 def load_last_list(account_email: str) -> list[MessageSummary]:
-    path = _last_list_path(account_email)
-    if not path.exists():
-        raise ValueError("No last list found. Run: msmail list")
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return [MessageSummary(**item) for item in data]
+    return load_last_list_state(account_email).messages
+
+
+def _save_state_with(state: MessageList, messages: list[MessageSummary], account_email: str) -> None:
+    save_last_list(
+        account_email,
+        messages,
+        next_link=state.next_link,
+        offset=state.offset,
+        source=state.source,
+    )
 
 
 def remove_from_last_list(account_email: str, message_id: str) -> None:
     path = _last_list_path(account_email)
     if not path.exists():
         return
-    messages = load_last_list(account_email)
-    remaining = [message for message in messages if message.id != message_id]
-    if len(remaining) == len(messages):
+    state = load_last_list_state(account_email)
+    remaining = [message for message in state.messages if message.id != message_id]
+    if len(remaining) == len(state.messages):
         return
-    save_last_list(account_email, remaining)
+    _save_state_with(state, remaining, account_email)
 
 
 def update_last_list_read_state(account_email: str, message_id: str, is_read: bool) -> None:
     path = _last_list_path(account_email)
     if not path.exists():
         return
-    messages = load_last_list(account_email)
+    state = load_last_list_state(account_email)
     updated = [
-        MessageSummary(
-            account=message.account,
-            index=message.index,
-            id=message.id,
-            subject=message.subject,
-            from_name=message.from_name,
-            from_address=message.from_address,
-            received_date_time=message.received_date_time,
-            is_read=is_read if message.id == message_id else message.is_read,
-            has_attachments=message.has_attachments,
-            has_user_attachments=message.has_user_attachments,
-            smime_signed=message.smime_signed,
-            smime_encrypted=message.smime_encrypted,
-            inference_classification=message.inference_classification,
-            body_preview=message.body_preview,
-        )
-        for message in messages
+        replace(message, is_read=is_read) if message.id == message_id else message
+        for message in state.messages
     ]
-    save_last_list(account_email, updated)
+    _save_state_with(state, updated, account_email)
 
 
 def resolve_message_reference(reference: str, account_email: Optional[str] = None) -> tuple[str, str]:
@@ -397,17 +482,47 @@ def _order_by(
     return ",".join(fields)
 
 
+def _collect_pages(
+    path: str,
+    access_token: str,
+    params: dict[str, str],
+    *,
+    fetch: Optional[int],
+) -> tuple[list[dict[str, Any]], Optional[str], bool]:
+    """Fetch raw message dicts, following `@odata.nextLink` where needed.
+
+    `fetch` of None means "everything available". Returns the values, the cursor
+    for the next page and whether the page ceiling cut the result short.
+    """
+    values: list[dict[str, Any]] = []
+    response = graph.get_json(path, access_token, params=params)
+    pages = 1
+    while True:
+        values.extend(response.get("value") or [])
+        next_link = response.get("@odata.nextLink")
+        if not isinstance(next_link, str) or not next_link:
+            return values, None, False
+        if fetch is not None and len(values) >= fetch:
+            # Exactly one request was enough, so the cursor still lines up with
+            # what the caller keeps; only a trimmed multi-page result loses it.
+            return values[:fetch], next_link if len(values) == fetch else None, False
+        if pages >= MAX_PAGES:
+            return values, next_link, True
+        response = graph.get_json(next_link, access_token)
+        pages += 1
+
+
 def list_messages(
     *,
     folder: str = "inbox",
     inbox_class: InboxClass = "focused",
-    limit: int = 25,
+    fetch: Optional[int] = 25,
     account_email: Optional[str] = None,
     from_address: Optional[str] = None,
     after: Optional[str] = None,
     before: Optional[str] = None,
     include_attachment_details: bool = False,
-) -> list[MessageSummary]:
+) -> MessageList:
     folder_id = normalize_folder(folder)
     if folder_id != "inbox" and inbox_class != "all":
         raise ValueError("--focused/--other apply only to the inbox folder.")
@@ -415,21 +530,9 @@ def list_messages(
     access_token, account = auth.get_access_token(account_email)
     account_email = account.email
 
-    select = ",".join(
-        [
-            "id",
-            "subject",
-            "from",
-            "receivedDateTime",
-            "isRead",
-            "hasAttachments",
-            "inferenceClassification",
-            "bodyPreview",
-        ]
-    )
     params = {
-        "$top": str(limit),
-        "$select": select,
+        "$top": str(_page_size(fetch)),
+        "$select": LIST_SELECT,
         "$orderby": _order_by(
             folder_id=folder_id,
             inbox_class=inbox_class,
@@ -447,12 +550,64 @@ def list_messages(
     if filter_expression:
         params["$filter"] = filter_expression
 
-    response = graph.get_json(
+    values, next_link, truncated = _collect_pages(
         f"/me/mailFolders/{folder_id}/messages",
         access_token,
-        params=params,
+        params,
+        fetch=fetch,
     )
-    values = response.get("value") or []
+    return _store_page(
+        account_email,
+        values,
+        next_link=next_link,
+        truncated=truncated,
+        include_attachment_details=include_attachment_details,
+    )
+
+
+def list_more(
+    *,
+    account_email: Optional[str] = None,
+    include_attachment_details: bool = False,
+) -> MessageList:
+    """Fetch the page after the one that is currently cached."""
+    access_token, account = auth.get_access_token(account_email)
+    state = load_last_list_state(account.email)
+
+    if state.source != "list":
+        raise ValueError(
+            f"The last listing came from '{state.source}', which cannot be paged. Run: msmail list"
+        )
+    if not state.next_link:
+        raise ValueError("No further page. Run: msmail list to start again.")
+
+    try:
+        response = graph.get_json(state.next_link, access_token)
+    except graph.GraphError as exc:
+        raise ValueError(f"The saved page cursor is no longer valid; run msmail list again. ({exc})") from exc
+
+    next_link = response.get("@odata.nextLink")
+    return _store_page(
+        account.email,
+        response.get("value") or [],
+        next_link=next_link if isinstance(next_link, str) and next_link else None,
+        truncated=False,
+        offset=state.offset + len(state.messages),
+        include_attachment_details=include_attachment_details,
+    )
+
+
+def _store_page(
+    account_email: str,
+    values: list[dict[str, Any]],
+    *,
+    next_link: Optional[str],
+    truncated: bool,
+    offset: int = 0,
+    include_attachment_details: bool = False,
+    source: str = "list",
+) -> MessageList:
+    """Number a page from 1, cache it and return it."""
     messages = []
     for index, message in enumerate(values, start=1):
         attachments = None
@@ -460,52 +615,61 @@ def list_messages(
         if include_attachment_details and message.get("hasAttachments") and message_id:
             attachments = list_attachments(message_id, account_email=account_email)
         messages.append(_message_to_summary(account_email, index, message, attachments))
-    save_last_list(account_email, messages)
-    return messages
+    save_last_list(
+        account_email,
+        messages,
+        next_link=next_link,
+        offset=offset,
+        source=source,
+    )
+    return MessageList(
+        messages=messages,
+        next_link=next_link,
+        offset=offset,
+        source=source,
+        truncated=truncated,
+    )
+
+
+def _quote_search_term(query: str) -> str:
+    # The term is wrapped in double quotes for Graph, so an embedded quote would
+    # otherwise end the term early and change the search expression.
+    return query.replace('"', '\\"')
 
 
 def search_messages(
     query: str,
     *,
-    limit: int = 25,
+    fetch: Optional[int] = 25,
     account_email: Optional[str] = None,
     include_attachment_details: bool = False,
-) -> list[MessageSummary]:
+) -> MessageList:
     if not query.strip():
         raise ValueError("Search query is empty.")
 
     access_token, account = auth.get_access_token(account_email)
     account_email = account.email
-    limit = max(1, min(limit, 100))
-    response = graph.get_json(
+
+    values, _next_link, truncated = _collect_pages(
         "/me/messages",
         access_token,
-        params={
-            "$top": str(limit),
-            "$search": f'"{query}"',
-            "$select": ",".join(
-                [
-                    "id",
-                    "subject",
-                    "from",
-                    "receivedDateTime",
-                    "isRead",
-                    "hasAttachments",
-                    "inferenceClassification",
-                    "bodyPreview",
-                ]
-            ),
+        {
+            "$top": str(_page_size(fetch)),
+            "$search": f'"{_quote_search_term(query)}"',
+            "$select": LIST_SELECT,
         },
+        fetch=fetch,
     )
-    messages = []
-    for index, message in enumerate(response.get("value") or [], start=1):
-        attachments = None
-        message_id = message.get("id") or ""
-        if include_attachment_details and message.get("hasAttachments") and message_id:
-            attachments = list_attachments(message_id, account_email=account_email)
-        messages.append(_message_to_summary(account_email, index, message, attachments))
-    save_last_list(account_email, messages)
-    return messages
+    # Graph orders $search results by relevance and may shift them between
+    # pages, so no cursor is kept; `list --more` refuses to continue a search.
+    return _store_page(
+        account_email,
+        values,
+        next_link=None,
+        truncated=truncated,
+        include_attachment_details=include_attachment_details,
+        source="search",
+    )
 
 
 def list_folders(

@@ -10,7 +10,7 @@ from rich.table import Table
 
 from msmail.core import graph
 from msmail.core import mail
-from msmail.commands.list import render_table
+from msmail.commands.list import render_position, render_table, resolve_fetch
 
 
 console = Console()
@@ -18,20 +18,26 @@ console = Console()
 
 def search_messages(
     query: str = typer.Argument(..., help="Microsoft Graph mail search query."),
-    limit: int = typer.Option(25, "--limit", "-n", help="Maximum number of messages."),
+    fetch: Optional[str] = typer.Option(
+        None,
+        "--fetch",
+        "-n",
+        help="How many messages to fetch: a number, 'auto' (default) or 'all'.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Print JSON output."),
     account: Optional[str] = typer.Option(None, "--account", help="Mail account email address."),
 ) -> None:
     try:
-        messages = mail.search_messages(query, limit=limit, account_email=account)
+        state = mail.search_messages(query, fetch=resolve_fetch(fetch), account_email=account)
     except (RuntimeError, ValueError, graph.GraphError) as exc:
         raise typer.BadParameter(str(exc)) from exc
 
     if json_output:
-        console.print_json(json.dumps([asdict(message) for message in messages]))
+        console.print_json(json.dumps([asdict(message) for message in state.messages]))
         return
 
-    render_table(messages)
+    render_table(state.messages)
+    render_position(state)
 
 
 def list_folders(

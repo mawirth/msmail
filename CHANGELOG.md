@@ -38,3 +38,13 @@
 - Remove the cached message list, which holds body previews, on `auth
   --logout`; signatures, profile and S/MIME material are kept.
 - Harden the runtime state once per process instead of on every token load.
+- Add `list --more` to page forward through a listing. Each page numbers its
+  messages from 1 and prints which part of the mailbox is on screen.
+- Replace `--limit` with `--fetch`, which accepts a number, `auto` or `all`. A
+  number is now honoured across as many Graph requests as it takes instead of
+  being silently truncated at 100, and the same rule applies to `list` and
+  `search`.
+- Escape double quotes in `search` terms, which previously ended the search
+  expression early.
+- Tolerate a `last-list.json` written by an older version instead of failing
+  with a traceback.

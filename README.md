@@ -113,8 +113,10 @@ one step, but it requires `--yes` to skip its confirmation.
 
 **Numbers refer to the last listing.** After `msmail list` or `msmail search`,
 `1` means the first result. The mapping is cached per account and is replaced by
-the next `list` or `search`. `draft send`, `mark`, `move` and `delete` also take
-ranges: `1-4` or `15-20,1-5,7,10-12`.
+the next `list`, `search` or `list --more` -- including when you page forward,
+where the numbers start again at 1. They describe what is on screen and nothing
+else. `draft send`, `mark`, `move` and `delete` also take ranges: `1-4` or
+`15-20,1-5,7,10-12`.
 
 Numbers are meant for typing by hand. **Scripts should use `--id`**, which takes
 the Graph message ID and never depends on cached state:
@@ -156,8 +158,40 @@ msmail list --all                             # both
 msmail list --folder sent                     # inbox, drafts, sent, deleted, junk
 msmail list --from alice@example.com
 msmail list --after 2026-06-01 --before 2026-07-01
-msmail list --limit 50                        # or --limit auto, the default
+msmail list --fetch 50                        # a number, 'auto' or 'all'
 msmail list --json
+```
+
+`--fetch` says how many messages to bring back. Left out, it is `auto`: as many
+as fit the terminal, or 25 when the output is piped. A number means that many,
+fetched across as many Graph requests as it takes. `all` empties the query.
+
+To page forward, use `--more`:
+
+```console
+$ msmail list --fetch 2
+  # UASE Date             From               Subject
+  1 **-- 2026-07-29 09:14 Alice Weber        Rechnung 2026-0871 im Anhang
+  2 *-** 2026-07-29 08:02 Bob Neumann        Re: Vertragsentwurf
+more: msmail list --more
+
+$ msmail list --more
+  # UASE Date             From               Subject
+  1 ---- 2026-07-28 22:41 CI Pipeline        Build #2914 passed
+  2 -**- 2026-07-28 17:30 Carol Fischer      Protokoll Jour Fixe
+Messages 3-4 · more: msmail list --more
+```
+
+**The numbers restart at 1 on every page.** They always describe what is on
+screen, never what scrolled past; the line below the table says which part of
+the mailbox you are looking at. `--more` continues the previous query, so the
+filters do not have to be repeated -- and for the same reason it cannot be
+combined with them. A plain `msmail list` starts over.
+
+If you need to work across pages, that is what `--json` and `--id` are for:
+
+```sh
+msmail list --fetch all --json | jq -r '.[] | select(.is_read == false) | .id'
 ```
 
 By default `list` does not inspect attachments, which keeps it fast. `A` then
@@ -176,7 +210,7 @@ Search the mailbox, and list folders including nested ones:
 
 ```sh
 msmail search "invoice"
-msmail search "from:alice@example.com" --limit 10 --json
+msmail search "from:alice@example.com" --fetch 10 --json
 msmail folders
 ```
 
@@ -402,8 +436,10 @@ Known limitations:
 - With `--encrypt` and `Bcc`, every recipient key is part of the same encrypted
   message. A To recipient can see that further recipients exist. Send separately
   if that matters.
-- Listing is capped at 100 messages per call; there is no paging through a whole
-  mailbox yet.
+- `list --more` only pages forward. To get back to an earlier page, list again.
+- `search` results cannot be paged: Graph orders them by relevance and may shift
+  them between pages, so `--more` refuses to continue a search. Use `--fetch`
+  with a larger number instead.
 
 ## Development
 

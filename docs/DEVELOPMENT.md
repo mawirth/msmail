@@ -71,7 +71,9 @@ Runtime state is intentionally outside the repository:
 ```
 
 `last-list.json` is the cache used for numeric references such as `msmail read
-1`. `draft send`, `mark`, `move` and `delete` also support range references
+1`. It also carries the Graph continuation cursor for `list --more`, the number
+of messages before the current page, and which command produced it. Every page
+numbers its messages from 1 and replaces the file. `draft send`, `mark`, `move` and `delete` also support range references
 such as `1-4` or `15-20,1-5,7,10-12`; commands with confirmation print every
 affected item before continuing. Scripts should use Graph IDs from `--json`
 instead.
@@ -91,9 +93,9 @@ After authenticating:
 
 ```sh
 msmail auth --whoami
-msmail list --limit 5
+msmail list --fetch 5
 msmail read 1
-msmail search "msmail" --limit 3
+msmail search "msmail" --fetch 3
 msmail folders
 ```
 

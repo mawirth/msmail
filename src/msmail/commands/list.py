@@ -33,22 +33,56 @@ def shorten_middle(value: str, width: int) -> str:
     return text[:head_len] + "…" + text[-tail_len:]
 
 
-def resolve_limit(value: str) -> int:
-    normalized = value.strip().lower()
+AUTO_PIPED_FETCH = 25
+
+
+def resolve_fetch(value: Optional[str]) -> Optional[int]:
+    """Turn --fetch into a message count, or None for "everything".
+
+    'auto' fills the terminal; when stdout is not a terminal there is no height
+    to go by, so a fixed number is used instead.
+    """
+    normalized = (value or "auto").strip().lower()
     if normalized == "auto":
         if not sys.stdout.isatty():
-            return 25
+            return AUTO_PIPED_FETCH
         rows = shutil.get_terminal_size(fallback=(100, 30)).lines
         return min(50, max(5, rows - 3))
+    if normalized == "all":
+        return None
 
     try:
-        limit = int(normalized)
+        fetch = int(normalized)
     except ValueError as exc:
-        raise typer.BadParameter("--limit must be an integer or 'auto'.") from exc
+        raise typer.BadParameter("--fetch must be a number, 'auto' or 'all'.") from exc
 
-    if limit < 1:
-        raise typer.BadParameter("--limit must be at least 1.")
-    return min(limit, 100)
+    if fetch < 1:
+        raise typer.BadParameter("--fetch must be at least 1.")
+    return fetch
+
+
+def render_position(state: mail.MessageList) -> None:
+    """Say which part of the mailbox is on screen.
+
+    The indexes restart at 1 on every page, so without this there is nothing to
+    tell page 3 from page 1.
+    """
+    if state.truncated:
+        console.print(
+            f"[yellow]Stopped after {mail.MAX_PAGES} pages "
+            f"({len(state.messages)} messages); narrow the query to see the rest.[/yellow]"
+        )
+    if not state.messages:
+        return
+
+    parts = []
+    if state.offset:
+        first = state.offset + 1
+        parts.append(f"Messages {first}-{state.offset + len(state.messages)}")
+    if state.next_link:
+        parts.append("more: [bold]msmail list --more[/bold]")
+    if parts:
+        console.print(f"[dim]{' · '.join(parts)}[/dim]")
 
 
 def render_table(messages: list[mail.MessageSummary]) -> None:
@@ -92,10 +126,19 @@ def render_table(messages: list[mail.MessageSummary]) -> None:
 
 
 def list_messages(
-    folder: str = typer.Option("inbox", "--folder", help="Folder to list."),
+    folder: Optional[str] = typer.Option(None, "--folder", help="Folder to list. Default: inbox."),
     other: bool = typer.Option(False, "--other", help="List Other inbox messages."),
     all_messages: bool = typer.Option(False, "--all", help="List Focused and Other inbox messages."),
-    limit: str = typer.Option("auto", "--limit", help="Message limit or 'auto'."),
+    fetch: Optional[str] = typer.Option(
+        None,
+        "--fetch",
+        help="How many messages to fetch: a number, 'auto' (default) or 'all'.",
+    ),
+    more: bool = typer.Option(
+        False,
+        "--more",
+        help="Fetch the page after the last listing. Indexes restart at 1.",
+    ),
     from_address: Optional[str] = typer.Option(None, "--from", help="Filter by exact sender email address."),
     after: Optional[str] = typer.Option(None, "--after", help="Only messages on or after YYYY-MM-DD."),
     before: Optional[str] = typer.Option(None, "--before", help="Only messages before YYYY-MM-DD."),
@@ -110,32 +153,61 @@ def list_messages(
     if other and all_messages:
         raise typer.BadParameter("Use only one of --other or --all.")
 
-    inbox_class: mail.InboxClass = "focused"
-    folder_id = mail.normalize_folder(folder)
-    if other:
-        inbox_class = "other"
-    elif all_messages:
-        inbox_class = "all"
-    elif folder_id != "inbox":
-        inbox_class = "all"
+    if more:
+        # The cursor carries the original query, so re-stating part of it would
+        # silently be ignored.
+        conflicting = [
+            name
+            for name, value in [
+                ("--folder", folder),
+                ("--fetch", fetch),
+                ("--from", from_address),
+                ("--after", after),
+                ("--before", before),
+                ("--other", other or None),
+                ("--all", all_messages or None),
+            ]
+            if value
+        ]
+        if conflicting:
+            raise typer.BadParameter(
+                f"--more continues the previous listing and cannot be combined with "
+                f"{', '.join(conflicting)}."
+            )
+        try:
+            state = mail.list_more(
+                account_email=account,
+                include_attachment_details=attachment_details,
+            )
+        except (ValueError, graph.GraphError) as exc:
+            raise typer.BadParameter(str(exc)) from exc
+    else:
+        inbox_class: mail.InboxClass = "focused"
+        folder_id = mail.normalize_folder(folder or "inbox")
+        if other:
+            inbox_class = "other"
+        elif all_messages:
+            inbox_class = "all"
+        elif folder_id != "inbox":
+            inbox_class = "all"
 
-    resolved_limit = resolve_limit(limit)
-    try:
-        messages = mail.list_messages(
-            folder=folder,
-            inbox_class=inbox_class,
-            limit=resolved_limit,
-            account_email=account,
-            from_address=from_address,
-            after=after,
-            before=before,
-            include_attachment_details=attachment_details,
-        )
-    except (ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+        try:
+            state = mail.list_messages(
+                folder=folder or "inbox",
+                inbox_class=inbox_class,
+                fetch=resolve_fetch(fetch),
+                account_email=account,
+                from_address=from_address,
+                after=after,
+                before=before,
+                include_attachment_details=attachment_details,
+            )
+        except (ValueError, graph.GraphError) as exc:
+            raise typer.BadParameter(str(exc)) from exc
 
     if json_output:
-        console.print_json(json.dumps([asdict(message) for message in messages]))
+        console.print_json(json.dumps([asdict(message) for message in state.messages]))
         return
 
-    render_table(messages)
+    render_table(state.messages)
+    render_position(state)
