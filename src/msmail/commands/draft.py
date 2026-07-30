@@ -144,11 +144,15 @@ def edit(
         raise typer.BadParameter("Use either INDEX_OR_ID or --id.")
 
     try:
-        template, info = drafts.compose_template_for_draft(
+        template, info, body_content_type = drafts.compose_template_for_draft(
             draft_id or reference or "",
             account_email=account,
         )
-        updated = compose.edit_compose_interactively(template)
+        # Keep an HTML draft an HTML draft; the template holds its raw markup.
+        updated = compose.edit_compose_interactively(
+            template,
+            html=body_content_type.lower() == "html",
+        )
         if updated is None:
             console.print("[yellow]Draft not modified.[/yellow]")
             raise typer.Exit()

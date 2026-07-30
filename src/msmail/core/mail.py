@@ -127,20 +127,28 @@ def normalize_folder(folder: str) -> Folder:
 def _is_smime_signature_attachment(name: str, content_type: str) -> bool:
     normalized_name = name.lower()
     normalized_type = content_type.lower()
-    return (
-        normalized_name in {"smime.p7s", "smime.p7m"}
-        or "pkcs7-signature" in normalized_type
+    if (
+        "pkcs7-signature" in normalized_type
         or normalized_type == "multipart/signed"
-    )
+        # An opaque signature: application/pkcs7-mime; smime-type=signed-data.
+        or "signed-data" in normalized_type
+    ):
+        return True
+    # smime.p7m is deliberately not matched by name. It carries either
+    # encrypted data or an opaque signature, and only the content type tells
+    # the two apart; matching it here marked every encrypted message as signed.
+    return normalized_name == "smime.p7s"
 
 
 def _is_smime_encrypted_attachment(name: str, content_type: str) -> bool:
     normalized_name = name.lower()
     normalized_type = content_type.lower()
-    return (
-        normalized_name in {"smime.p7m", "smime.p7c"}
-        and "multipart/signed" not in normalized_type
-    ) or ("pkcs7-mime" in normalized_type and "signed" not in normalized_type)
+    if "signed" in normalized_type:
+        # multipart/signed and smime-type=signed-data are not encrypted.
+        return False
+    if "pkcs7-mime" in normalized_type:
+        return True
+    return normalized_name in {"smime.p7m", "smime.p7c"}
 
 
 def _attachment_flags(attachments: list[AttachmentInfo]) -> tuple[bool, bool, bool]:

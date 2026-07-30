@@ -850,3 +850,54 @@ def test_get_message_can_skip_attachment_details(monkeypatch):
     assert detail.smime_signed is False
     assert detail.smime_encrypted is False
     assert detail.attachment_details_loaded is False
+
+
+def test_smime_attachment_is_never_both_signed_and_encrypted():
+    """smime.p7m carries either encrypted data or an opaque signature.
+
+    Classifying it by name alone marked every encrypted message as signed too,
+    which showed a spurious S in the UASE column.
+    """
+    cases = [
+        # name, content type, expected (signature, encrypted)
+        ("smime.p7m", "application/pkcs7-mime; smime-type=enveloped-data", (False, True)),
+        ("smime.p7m", "application/pkcs7-mime; smime-type=signed-data", (True, False)),
+        ("smime.p7m", "multipart/signed", (True, False)),
+        ("smime.p7s", "application/pkcs7-signature", (True, False)),
+        ("smime.p7s", "application/x-pkcs7-signature", (True, False)),
+        ("smime.p7c", "", (False, True)),
+        ("report.pdf", "application/pdf", (False, False)),
+    ]
+
+    for name, content_type, expected in cases:
+        actual = (
+            mail._is_smime_signature_attachment(name, content_type),
+            mail._is_smime_encrypted_attachment(name, content_type),
+        )
+        assert actual == expected, f"{name} / {content_type!r}: {actual} != {expected}"
+        assert not all(actual), f"{name} / {content_type!r} classified as both"
+
+
+def test_encrypted_message_is_not_reported_as_signed(monkeypatch):
+    summary = mail._message_to_summary(
+        "me@example.com",
+        1,
+        {"id": "message-id", "subject": "Encrypted", "hasAttachments": True, "isRead": True},
+        [
+            mail.AttachmentInfo(
+                id="enc",
+                name="smime.p7m",
+                content_type="application/pkcs7-mime; smime-type=enveloped-data",
+                size=400,
+                is_inline=False,
+                attachment_type="fileAttachment",
+                can_save=False,
+                is_smime_signature=False,
+                is_smime_encrypted=True,
+            )
+        ],
+    )
+
+    assert summary.smime_encrypted is True
+    assert summary.smime_signed is False
+    assert summary.has_user_attachments is False

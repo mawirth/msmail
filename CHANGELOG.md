@@ -27,3 +27,7 @@
   downloaded every attachment body just to print sender and subject.
 - Retry throttled Graph requests (HTTP 429, 503) with `Retry-After`
   backoff, and follow `@odata.nextLink` when listing mail folders.
+- Keep HTML drafts in HTML when editing them; `draft edit` converted the body
+  to text and saved the draft as a plain text message.
+- Classify `smime.p7m` attachments by content type instead of by name, so an
+  encrypted message is no longer also reported as signed.

@@ -37,6 +37,8 @@ Notable limitations:
 
 - `draft edit` preserves existing normal attachments but cannot edit existing
   S/MIME drafts.
+- `draft edit` opens an HTML draft as raw HTML and saves it as HTML again, so
+  no markup is lost. Text drafts stay text.
 - Review long messages before creating a draft with `--sign` or `--encrypt`;
   those S/MIME MIME drafts can be read but not edited with `draft edit`.
 - S/MIME reply/forward creates a new MIME draft and does not yet quote the

@@ -756,7 +756,7 @@ def test_compose_template_for_draft_allows_existing_normal_attachments(monkeypat
 
     monkeypatch.setattr(drafts.graph, "get_json", get_json)
 
-    template, info = drafts.compose_template_for_draft("1")
+    template, info, body_content_type = drafts.compose_template_for_draft("1")
 
     assert info.has_attachments is True
     assert "Subject: Status" in template
@@ -847,3 +847,55 @@ def test_update_draft_patches_body_without_removing_existing_attachments(monkeyp
             "bccRecipients": [],
         },
     }
+
+
+def _stub_draft_fetch(monkeypatch, body):
+    monkeypatch.setattr(
+        drafts.mail,
+        "resolve_message_reference",
+        lambda reference, account_email=None: ("draft/id", "me@example.com"),
+    )
+    monkeypatch.setattr(
+        drafts.auth,
+        "get_access_token",
+        lambda account_email=None: ("token", Account()),
+    )
+
+    def get_json(path, access_token, params=None):
+        if path == "/me/messages/draft%2Fid":
+            return {
+                "id": "draft/id",
+                "subject": "Status",
+                "from": {"emailAddress": {"address": "me@example.com"}},
+                "toRecipients": [{"emailAddress": {"address": "alice@example.com"}}],
+                "ccRecipients": [],
+                "bccRecipients": [],
+                "body": body,
+                "hasAttachments": False,
+                "isDraft": True,
+            }
+        raise AssertionError(f"unexpected path: {path}")
+
+    monkeypatch.setattr(drafts.graph, "get_json", get_json)
+
+
+def test_html_draft_keeps_its_markup_and_content_type(monkeypatch):
+    """Editing an HTML draft must not silently turn it into a text message."""
+    markup = '<div style="font-size: 10pt;"><p>Done.</p><p><b>Regards</b></p></div>'
+    _stub_draft_fetch(monkeypatch, {"contentType": "html", "content": markup})
+
+    template, _info, body_content_type = drafts.compose_template_for_draft("1")
+
+    assert body_content_type == "HTML"
+    # The raw markup is offered for editing, not a lossy text conversion.
+    assert markup in template
+    assert "<b>Regards</b>" in template
+
+
+def test_text_draft_stays_text(monkeypatch):
+    _stub_draft_fetch(monkeypatch, {"contentType": "text", "content": "Done."})
+
+    template, _info, body_content_type = drafts.compose_template_for_draft("1")
+
+    assert body_content_type == "Text"
+    assert "Done." in template

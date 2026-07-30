@@ -136,12 +136,13 @@ def test_draft_edit_does_not_append_signature_again(monkeypatch):
                 has_attachments=False,
                 is_draft=True,
             ),
+            "Text",
         ),
     )
     monkeypatch.setattr(
         draft_command.compose,
         "edit_compose_interactively",
-        lambda template: draft_command.compose.ComposeDraft(
+        lambda template, html=False: draft_command.compose.ComposeDraft(
             to=["alice@example.com"],
             cc=[],
             bcc=[],
@@ -601,3 +602,55 @@ def test_move_preview_does_not_download_attachments(monkeypatch):
 
     assert result.exit_code == 0
     assert captured == [False, False]
+
+
+def test_draft_edit_keeps_an_html_draft_html(monkeypatch):
+    """The edited draft must be saved with the content type it had."""
+    captured = {}
+    markup = '<div><p>Done.</p></div>'
+
+    monkeypatch.setattr(
+        drafts,
+        "compose_template_for_draft",
+        lambda reference, account_email=None: (
+            f"To: alice@example.com\nCc:\nBcc:\nSubject: Status\nAttach:\nSign: no\nEncrypt: no\n\n---\n{markup}",
+            drafts.DraftInfo(
+                account="me@example.com",
+                id="draft-1",
+                subject="Status",
+                from_address="me@example.com",
+                to=["alice@example.com"],
+                cc=[],
+                bcc=[],
+                has_attachments=False,
+                is_draft=True,
+            ),
+            "HTML",
+        ),
+    )
+
+    def edit_compose_interactively(template, html=False):
+        captured["html"] = html
+        return draft_command.compose.parse_compose_text(template, html=html)
+
+    monkeypatch.setattr(draft_command.compose, "edit_compose_interactively", edit_compose_interactively)
+
+    def update_draft(draft_id, draft, account_email=None, include_signature=True):
+        captured["body_content_type"] = draft.body_content_type
+        captured["body"] = draft.body
+        return drafts.DraftEditResult(
+            account="me@example.com",
+            id=draft_id,
+            subject=draft.subject,
+            to=draft.to,
+            attachments=[],
+        )
+
+    monkeypatch.setattr(drafts, "update_draft", update_draft)
+
+    result = runner.invoke(app, ["draft", "edit", "1"])
+
+    assert result.exit_code == 0
+    assert captured["html"] is True
+    assert captured["body_content_type"] == "HTML"
+    assert captured["body"] == markup

@@ -96,12 +96,17 @@ def _reject_unsupported(draft: compose.ComposeDraft) -> None:
         raise ValueError("Drafts created with --sign or --encrypt are MIME drafts and cannot be edited; create a new signed/encrypted draft instead.")
 
 
-def _message_body_to_text(body: dict[str, Any]) -> str:
+def _editable_body(body: dict[str, Any]) -> tuple[str, str]:
+    """Return the body to put in the compose template and its content type.
+
+    An HTML draft is handed over as raw HTML rather than as converted text, so
+    that editing and saving it round-trips without losing markup and without
+    silently turning the draft into a plain text message.
+    """
     content = body.get("content") or ""
-    content_type = (body.get("contentType") or "").lower()
-    if content_type == "html":
-        return render.html_to_text(content)
-    return render.unwrap_safelinks_in_text(content)
+    if (body.get("contentType") or "").lower() == "html":
+        return content, "HTML"
+    return render.unwrap_safelinks_in_text(content), "Text"
 
 
 def _draft_payload(draft: compose.ComposeDraft) -> dict[str, Any]:
@@ -390,7 +395,15 @@ def get_draft_info(reference: str, account_email: Optional[str] = None) -> Draft
     return info
 
 
-def compose_template_for_draft(reference: str, account_email: Optional[str] = None) -> tuple[str, DraftInfo]:
+def compose_template_for_draft(
+    reference: str,
+    account_email: Optional[str] = None,
+) -> tuple[str, DraftInfo, str]:
+    """Return the compose template, the draft metadata and the body content type.
+
+    The content type has to travel with the template: saving the edit without
+    it would rewrite an HTML draft as a plain text message.
+    """
     message_id, resolved_account = mail.resolve_message_reference(reference, account_email)
     access_token, account = auth.get_access_token(resolved_account)
     message_path_id = graph.quote_path_segment(message_id)
@@ -419,14 +432,15 @@ def compose_template_for_draft(reference: str, account_email: Optional[str] = No
         if any(attachment.is_smime_signature or attachment.is_smime_encrypted for attachment in attachments):
             raise ValueError("Drafts created with --sign or --encrypt are MIME drafts and cannot be edited; create a new signed/encrypted draft instead.")
 
+    body, body_content_type = _editable_body(message.get("body") or {})
     template = compose.compose_template(
         to=", ".join(info.to),
         cc=", ".join(info.cc),
         bcc=", ".join(info.bcc),
         subject=info.subject,
-        body=_message_body_to_text(message.get("body") or {}),
+        body=body,
     )
-    return template, info
+    return template, info, body_content_type
 
 
 def update_draft(
