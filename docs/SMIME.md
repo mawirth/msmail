@@ -46,7 +46,8 @@ Import recipient certificates:
 msmail smime import-recipient --cert alice.pem --email alice@example.com
 ```
 
-Mail to the configured own account can use `own-cert.pem` automatically.
+Encryption always includes `own-cert.pem`, so the sender can decrypt the draft
+and sent copy. This adds a cryptographic recipient only, not another mail recipient.
 
 ## Outgoing Mail
 
@@ -138,6 +139,7 @@ available:
     "decrypted": true,
     "verified": true,
     "trusted": true,
+    "sender_matches": true,
     "signer_certificate": {
       "subject": "...",
       "issuer": "...",
@@ -150,11 +152,15 @@ available:
 }
 ```
 
+`verified` means that the content signature and certificate chain verified.
+`sender_matches` compares certificate email addresses with the displayed From
+address; `trusted` requires both checks to succeed. A valid signature with a
+different sender is displayed as a mismatch. Saving with `--verify-smime` refuses
+such a message. The flag also works without `--decrypt` on signed-only messages.
+
 ## Temporary Files
 
-OpenSSL operations write temporary `.eml` files below `/tmp` by default. These
-files can contain decrypted mail while a command is running. A future release
-may move this into an account-scoped cache with explicit cleanup.
-
-For now, treat the local machine as trusted and avoid running S/MIME commands
-on shared systems.
+OpenSSL operations use private temporary directories below `/tmp` by default.
+Normal reading, verification, decryption and draft creation remove their working
+directories after use. An explicit `--output-dir` and `smime test-sign` keep their
+outputs for inspection. Use a private `TMPDIR` if needed; see [SECURITY.md](SECURITY.md).

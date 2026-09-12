@@ -2,6 +2,25 @@
 
 ## 0.1.0 - Unreleased
 
+- Check the S/MIME signer against the message's From address. JSON now separates
+  `verified`, `sender_matches` and `trusted`; saving with `--verify-smime` requires
+  both a valid trusted signature and a matching sender, including without `--decrypt`.
+- Include the sender's certificate when encrypting, keeping drafts and sent
+  copies decryptable without adding an extra To/Cc/Bcc recipient.
+- Resolve authentication by stable MSAL identity or the stored sign-in name when
+  the mailbox's primary address differs. Remove matching alias caches on logout.
+- Build Graph-compliant filter/order combinations and reply/forward recipient
+  payloads; preserve explicit HTML content types for replies and forwards.
+- Honor `--fetch` on the final result page as well as intermediate pages.
+- Render message text and metadata literally instead of interpreting Rich markup.
+- Preserve percent escapes when unwrapping SafeLinks and reject lookalike hosts.
+- Preserve commas, semicolons and quotes in attachment paths. Generated compose
+  templates use JSON arrays; legacy comma-separated attachment lists still work.
+- Reject draft-creation responses without an ID and report the retained draft ID
+  if uploading an attachment fails.
+- Isolate all tests from real account state and network access, and add regression
+  tests using real OpenSSL with temporary synthetic certificates.
+
 - Add Microsoft Graph device-code authentication.
 - Add account-scoped local state and active-account handling.
 - Add message listing, reading, searching and recursive folder listing.

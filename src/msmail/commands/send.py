@@ -82,7 +82,7 @@ def send_message(
                 cc=cc or "",
                 bcc=bcc or "",
                 subject=subject or "",
-                attach=", ".join(attach or []),
+                attachments=attach or [],
                 body=body_text,
             )
             draft = compose.parse_compose_text(template, html=html)
@@ -91,14 +91,14 @@ def send_message(
 
         if not json_output:
             console.print("[bold]Message ready to send[/bold]")
-            console.print(f"To: {', '.join(draft.to)}")
+            console.print(f"To: {', '.join(draft.to)}", markup=False)
             if draft.cc:
-                console.print(f"Cc: {', '.join(draft.cc)}")
+                console.print(f"Cc: {', '.join(draft.cc)}", markup=False)
             if draft.bcc:
-                console.print(f"Bcc: {', '.join(draft.bcc)}")
-            console.print(f"Subject: {draft.subject}")
+                console.print(f"Bcc: {', '.join(draft.bcc)}", markup=False)
+            console.print(f"Subject: {draft.subject}", markup=False)
             if draft.attachments:
-                console.print(f"Attachments: {', '.join(draft.attachments)}")
+                console.print(f"Attachments: {', '.join(draft.attachments)}", markup=False)
 
         if not yes and not Confirm.ask("Send this message?", default=False):
             console.print("[yellow]Send cancelled.[/yellow]")

@@ -318,6 +318,7 @@ def test_encrypt_mime_calls_openssl_with_recipient_certs(monkeypatch, tmp_path):
             "-outform",
             "SMIME",
             str(recipient_cert),
+            paths.cert,
         ]
     ]
 

@@ -25,7 +25,7 @@ def save_attachments(
     overwrite: bool = typer.Option(False, "--overwrite", help="Overwrite existing files."),
     include_inline: bool = typer.Option(False, "--inline", help="Also save inline file attachments such as embedded images."),
     decrypt: bool = typer.Option(False, "--decrypt", help="Decrypt S/MIME message and save encrypted-container attachments."),
-    verify_smime: bool = typer.Option(False, "--verify-smime", help="Verify decrypted S/MIME signature before saving."),
+    verify_smime: bool = typer.Option(False, "--verify-smime", help="Verify S/MIME signature and sender before saving."),
     json_output: bool = typer.Option(False, "--json", help="Print JSON output."),
     account: Optional[str] = typer.Option(None, "--account", help="Mail account email address."),
 ) -> None:
@@ -52,6 +52,7 @@ def save_attachments(
     if not result.saved:
         console.print("[yellow]No file attachments saved.[/yellow]")
     for saved in result.saved:
-        console.print(f"[green]Saved[/green] {saved.name}: {saved.path}")
+        console.print("[green]Saved[/green]", end=" ")
+        console.print(f"{saved.name}: {saved.path}", markup=False)
     if result.skipped:
         console.print(f"[yellow]Skipped {result.skipped} unsupported or inline attachment(s).[/yellow]")

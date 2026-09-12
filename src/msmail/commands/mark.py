@@ -59,4 +59,4 @@ def mark_message(
     state = "read" if read else "unread"
     console.print(f"[green]{len(results)} message(s) marked {state}.[/green]")
     if len(results) == 1:
-        console.print(f"Subject: {results[0].subject}")
+        console.print(f"Subject: {results[0].subject}", markup=False)

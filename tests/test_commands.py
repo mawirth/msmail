@@ -404,11 +404,12 @@ def test_read_verified_signed_message_renders_verified_body(monkeypatch, tmp_pat
     monkeypatch.setattr(
         read_command.smime,
         "verify_signed_mime_bytes",
-        lambda mime_bytes, account_email=None: smime.VerifyResult(
+        lambda mime_bytes, account_email=None, expected_sender=None: smime.VerifyResult(
             verified=True,
             signed=True,
             verified_path="",
             data=verified.read_bytes(),
+            sender_matches=expected_sender == "me@example.com",
         ),
     )
 

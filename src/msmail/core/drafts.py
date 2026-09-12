@@ -87,6 +87,13 @@ def _addresses(recipients: list[dict[str, Any]]) -> list[str]:
     return addresses
 
 
+def _created_draft_id(response: dict[str, Any]) -> str:
+    draft_id = response.get("id")
+    if not isinstance(draft_id, str) or not draft_id:
+        raise graph.GraphError("Graph returned no usable draft ID; draft creation could not be confirmed.")
+    return draft_id
+
+
 def _email_address(value: dict[str, Any] | None) -> str:
     return ((value or {}).get("emailAddress") or {}).get("address") or ""
 
@@ -124,13 +131,20 @@ def _draft_payload(draft: compose.ComposeDraft) -> dict[str, Any]:
 
 
 def _response_payload(response: compose.ResponseDraft) -> dict[str, Any]:
-    payload: dict[str, Any] = {"comment": response.body}
+    payload: dict[str, Any] = {}
+    message: dict[str, Any] = {}
+    if response.body_content_type.lower() == "html":
+        message["body"] = {"contentType": "HTML", "content": response.body}
+    else:
+        payload["comment"] = response.body
     if response.to:
-        payload["toRecipients"] = [_recipient(address) for address in response.to]
+        message["toRecipients"] = [_recipient(address) for address in response.to]
     if response.cc:
-        payload["ccRecipients"] = [_recipient(address) for address in response.cc]
+        message["ccRecipients"] = [_recipient(address) for address in response.cc]
     if response.bcc:
-        payload["bccRecipients"] = [_recipient(address) for address in response.bcc]
+        message["bccRecipients"] = [_recipient(address) for address in response.bcc]
+    if message:
+        payload["message"] = message
     return payload
 
 
@@ -317,7 +331,7 @@ def _post_smime_draft(
     )
     return DraftResult(
         account=account_email,
-        id=response.get("id") or "",
+        id=_created_draft_id(response),
         subject=response.get("subject") or draft.subject,
         to=draft.to,
         attachments=[attachment.name for attachment in attachments],
@@ -357,8 +371,13 @@ def create_draft(
         )
 
     response = graph.post_json("/me/messages", access_token, body=_draft_payload(draft))
-    draft_id = response.get("id") or ""
-    uploaded = _upload_attachments(draft_id, attachments, access_token) if draft_id else []
+    draft_id = _created_draft_id(response)
+    try:
+        uploaded = _upload_attachments(draft_id, attachments, access_token)
+    except (OSError, graph.GraphError) as exc:
+        raise graph.GraphError(
+            f"Draft {draft_id} was created, but attachment upload failed: {exc}"
+        ) from exc
     return DraftResult(
         account=account.email,
         id=draft_id,
@@ -596,7 +615,7 @@ def create_reply_draft(
     )
     return ResponseDraftResult(
         account=account.email,
-        id=draft.get("id") or "",
+        id=_created_draft_id(draft),
         subject=draft.get("subject") or "",
         to=_addresses(draft.get("toRecipients") or []),
         source_id=message_id,
@@ -664,7 +683,7 @@ def create_forward_draft(
     )
     return ResponseDraftResult(
         account=account.email,
-        id=draft.get("id") or "",
+        id=_created_draft_id(draft),
         subject=draft.get("subject") or "",
         to=_addresses(draft.get("toRecipients") or []) or response.to,
         source_id=message_id,

@@ -7,6 +7,7 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from msmail.core import graph
 from msmail.core import mail
@@ -62,10 +63,10 @@ def list_folders(
     for folder in folders:
         name = f"{'  ' * folder.depth}{folder.display_name}"
         table.add_row(
-            name,
+            Text(name),
             str(folder.unread_item_count),
             str(folder.total_item_count),
             str(folder.child_folder_count),
-            folder.id,
+            Text(folder.id),
         )
     console.print(table)

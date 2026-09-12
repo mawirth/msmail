@@ -58,14 +58,14 @@ def move_message(
     if not json_output:
         if len(previews) == 1:
             console.print("[bold]Message ready to move[/bold]")
-            console.print(f"From: {previews[0].from_address}")
-            console.print(f"Subject: {previews[0].subject}")
+            console.print(f"From: {previews[0].from_address}", markup=False)
+            console.print(f"Subject: {previews[0].subject}", markup=False)
         else:
             console.print(f"[bold]{len(previews)} messages ready to move[/bold]")
             for item, preview in zip(items, previews):
                 label = f"#{item.index}" if item.index else preview.id
-                console.print(f"{label}: {preview.from_address} | {preview.subject}")
-        console.print(f"Destination: {normalized_folder}")
+                console.print(f"{label}: {preview.from_address} | {preview.subject}", markup=False)
+        console.print(f"Destination: {normalized_folder}", markup=False)
 
     prompt = "Move this message?" if len(previews) == 1 else f"Move {len(previews)} messages?"
     if not yes and not Confirm.ask(prompt, default=False):

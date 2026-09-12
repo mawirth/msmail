@@ -16,14 +16,14 @@ console = Console()
 
 
 def _print_summary(result: mail.MessageOperationResult) -> None:
-    console.print(f"From: {result.from_address}")
-    console.print(f"Subject: {result.subject}")
+    console.print(f"From: {result.from_address}", markup=False)
+    console.print(f"Subject: {result.subject}", markup=False)
 
 
 def _print_batch_summary(items: list[mail.MessageSummary], previews: list[mail.MessageDetail]) -> None:
     for item, preview in zip(items, previews):
         label = f"#{item.index}" if item.index else preview.id
-        console.print(f"{label}: {preview.from_address} | {preview.subject}")
+        console.print(f"{label}: {preview.from_address} | {preview.subject}", markup=False)
 
 
 def delete_message(

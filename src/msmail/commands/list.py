@@ -9,6 +9,7 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from msmail.core import graph
 from msmail.core import mail
@@ -118,8 +119,8 @@ def render_table(messages: list[mail.MessageSummary]) -> None:
             str(message.index),
             status,
             message.received_date_time[:16].replace("T", " "),
-            shorten_middle(message.from_name or message.from_address, from_width),
-            shorten_middle(message.subject, subject_width),
+            Text(shorten_middle(message.from_name or message.from_address, from_width)),
+            Text(shorten_middle(message.subject, subject_width)),
         )
 
     console.print(table)

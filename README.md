@@ -242,6 +242,11 @@ Encrypt: no
 Message body starts here.
 ```
 
+For filenames containing commas or semicolons, use a JSON array in the compose
+file, for example `Attach: ["report,final.pdf", "data;2026.csv"]`. Generated editor
+templates use this unambiguous form. Repeated `--attach` options also preserve each
+path exactly.
+
 Edit, send or discard an existing draft:
 
 ```sh
@@ -340,6 +345,15 @@ Verifying a signature needs trust anchors only, never your private key, so
 operating system's CA store, your own `ca-bundle.pem`, and an optional
 `trusted-ca.pem` for anchors the system does not know, such as an internal
 company CA. Signing, encrypting and decrypting do need your own key.
+
+Verification also checks that the signer's certificate matches the message's
+From address. JSON reports `verified` for the signature and certificate chain,
+`sender_matches` for that address check, and `trusted` only when both succeed.
+An address mismatch is explicitly displayed and prevents saving attachments with
+`--verify-smime`. This option also verifies signed, unencrypted attachments.
+
+Encryption automatically includes your own certificate, so you can decrypt your
+own drafts and sent copies. This does not add your address to To, Cc or Bcc.
 
 More detail: [docs/SMIME.md](docs/SMIME.md).
 

@@ -81,6 +81,11 @@ class VerifyResult:
     signer_certificate: CertificateInfo | None = None
     error: str | None = None
     data: bytes | None = None
+    sender_matches: bool | None = None
+
+    @property
+    def trusted(self) -> bool:
+        return self.verified and self.sender_matches is True
 
 
 @dataclass(frozen=True)
@@ -591,7 +596,9 @@ def encrypt_mime(
     output_dir: Optional[str] = None,
 ) -> tuple[str, str]:
     account_email, _paths = require_configured(account_email)
-    certs = recipient_certificates(recipients, account_email=account_email)
+    # Keep the sender's draft and sent copy decryptable without adding a mail
+    # recipient to the outer To/Cc/Bcc headers.
+    certs = recipient_certificates(recipients + [account_email], account_email=account_email)
     # The caller reads the encrypted bytes and is responsible for calling
     # discard_working_dir(); clear.eml holds outgoing cleartext.
     directory, owned = _working_dir(output_dir, TEMP_PREFIX)
@@ -698,6 +705,7 @@ def verify_signed_mime_bytes(
     *,
     account_email: Optional[str] = None,
     output_dir: Optional[str] = None,
+    expected_sender: Optional[str] = None,
 ) -> VerifyResult:
     _account, paths = verification_material(account_email)
     directory, owned = _working_dir(output_dir, TEMP_PREFIX + "verify-")
@@ -742,6 +750,14 @@ def verify_signed_mime_bytes(
 
         # Read the signer certificate before the directory is discarded.
         signer_info = certificate_info(signer_path) if signer_path.exists() else None
+        sender_matches = None
+        sender_error = None
+        if expected_sender is not None:
+            sender = expected_sender.strip().lower()
+            sender_matches = bool(sender and signer_info and sender in
+                                  [email.strip().lower() for email in signer_info.emails])
+            if not sender_matches:
+                sender_error = "S/MIME signer certificate does not match the message's From address."
         return VerifyResult(
             verified=True,
             signed=True,
@@ -749,6 +765,8 @@ def verify_signed_mime_bytes(
             signer_path=reported_signer(),
             signer_certificate=signer_info,
             data=verified_path.read_bytes(),
+            sender_matches=sender_matches,
+            error=sender_error,
         )
     finally:
         _discard(directory, owned)

@@ -17,10 +17,6 @@ given tolerant loading during the paging work; these two were not.
 self-referential structure would recurse until Python's stack limit. A depth cap
 with a warning would be enough.
 
-**Attachments are dropped silently.** In `core/drafts.py`, `create_draft` only
-uploads attachments `if draft_id`. If Graph returns a message without an ID, the
-draft exists without its attachments and nothing says so.
-
 ## Security
 
 **`--encrypt` together with `Bcc` discloses that further recipients exist.**
@@ -59,6 +55,10 @@ for ranges. Defensible, since read state is reversible, but it is the one range
 operation with no preview. Documented in the README.
 
 ## Decided, not open
+
+- **Missing draft IDs are errors.** Fixed in the September 2026 review: creation
+  no longer reports success without an ID. Attachment upload failures include
+  the retained draft ID for inspection.
 
 - **`--limit` was removed, not aliased.** `--fetch` replaced it outright at
   0.1.0 while the cost of breaking scripts is near zero. Do not reintroduce an

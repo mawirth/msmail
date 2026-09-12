@@ -56,9 +56,9 @@ def _print_result(result: drafts.ResponseDraftResult) -> None:
     console.print(f"[green]Draft created[/green]: {result.id}")
     console.print(f"Type: {result.response_type}")
     if result.to:
-        console.print(f"To: {', '.join(result.to)}")
+        console.print(f"To: {', '.join(result.to)}", markup=False)
     if result.subject:
-        console.print(f"Subject: {result.subject}")
+        console.print(f"Subject: {result.subject}", markup=False)
 
 
 def reply_message(

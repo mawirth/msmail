@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import json
 import os
@@ -35,6 +35,7 @@ class Account:
     user_principal_name: str | None = None
     tenant_id: str | None = None
     account_key: str | None = None
+    home_account_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -224,7 +225,25 @@ def _load_profile(email: str) -> Account | None:
         user_principal_name=data.get("user_principal_name"),
         tenant_id=data.get("tenant_id"),
         account_key=data.get("account_key"),
+        home_account_id=data.get("home_account_id"),
     )
+
+
+def _select_account(accounts: list[dict], email: str, profile: Account | None) -> dict | None:
+    """Resolve MSAL identity independently of the mailbox's primary address."""
+    if profile and profile.home_account_id:
+        return next((item for item in accounts
+                     if item.get("home_account_id") == profile.home_account_id), None)
+    names = [profile.user_principal_name, profile.email, email] if profile else [email]
+    for name in names:
+        if name:
+            matches = [item for item in accounts
+                       if (item.get("username") or "").lower() == name.lower()]
+            if len(matches) == 1:
+                return matches[0]
+    # Legacy single-account caches can have a different sign-in alias. Never
+    # guess when more than one identity is present.
+    return accounts[0] if len(accounts) == 1 else None
 
 
 def _profile_from_me(requested_email: str, me: dict, token_result: dict | None = None) -> Account:
@@ -273,6 +292,11 @@ def login(
         params={"$select": "displayName,mail,userPrincipalName,id"},
     )
     account = _profile_from_me(normalized, me, result)
+    cached_account = _select_account(
+        list(cache.search(msal.TokenCache.CredentialType.ACCOUNT)), normalized, account,
+    )
+    if cached_account:
+        account = replace(account, home_account_id=cached_account.get("home_account_id"))
     _save_cache(normalized, cache)
 
     # If Graph reports a different primary address, copy the cache to that key
@@ -283,6 +307,10 @@ def login(
         write_private_text(_token_cache_path(account.email), cache.serialize())
 
     _save_profile(account)
+    if account.email != normalized:
+        # Explicit --account <login alias> should also resolve the canonical
+        # mailbox for signatures and certificate configuration.
+        write_private_text(_profile_path(normalized), json.dumps(asdict(account)) + "\n")
     _set_active(account.email)
     return LoginResult(
         account=account,
@@ -299,10 +327,10 @@ def whoami() -> Optional[Account]:
     cache = _load_cache(email)
     try:
         app = _app(cache)
-        accounts = app.get_accounts(username=email)
+        cached_account = _select_account(app.get_accounts(), email, profile)
         token_result = None
-        if accounts:
-            token_result = app.acquire_token_silent(SCOPES, account=accounts[0])
+        if cached_account:
+            token_result = app.acquire_token_silent(SCOPES, account=cached_account)
     except Exception:
         return profile or Account(email=email, account_key=account_key(email))
 
@@ -319,6 +347,8 @@ def whoami() -> Optional[Account]:
         return profile or Account(email=email, account_key=account_key(email))
 
     account = _profile_from_me(email, me, token_result)
+    if cached_account:
+        account = replace(account, home_account_id=cached_account.get("home_account_id"))
     _save_cache(email, cache)
     _save_profile(account)
     return account
@@ -330,13 +360,14 @@ def get_access_token(email: Optional[str] = None) -> tuple[str, Account]:
         raise RuntimeError("No active account. Run: msmail auth --login <email>")
 
     cache = _load_cache(active)
+    profile = _load_profile(active)
     try:
         app = _app(cache)
-        accounts = app.get_accounts(username=active)
-        if not accounts:
+        cached_account = _select_account(app.get_accounts(), active, profile)
+        if not cached_account:
             raise RuntimeError(f"No token cache entry for {active}. Run auth --login again.")
 
-        result = app.acquire_token_silent(SCOPES, account=accounts[0])
+        result = app.acquire_token_silent(SCOPES, account=cached_account)
     except RuntimeError:
         raise
     except Exception as exc:
@@ -346,7 +377,6 @@ def get_access_token(email: Optional[str] = None) -> tuple[str, Account]:
         raise RuntimeError(f"Could not acquire token for {active}. Run auth --login again.")
 
     _save_cache(active, cache)
-    profile = _load_profile(active)
     account = profile or Account(email=active, account_key=account_key(active))
     return result["access_token"], account
 
@@ -363,9 +393,32 @@ def logout() -> bool:
     if not email:
         return False
 
+    # Older logins (and logins using an alias) keep identical caches under both
+    # addresses. Remove all copies, but never an unrelated account's cache.
+    cache_path = _token_cache_path(email)
+    active_cache = cache_path.read_bytes() if cache_path.exists() else b""
+
+    def identities(data: bytes) -> set[str]:
+        try:
+            accounts = json.loads(data).get("Account", {})
+            return {item["home_account_id"] for item in accounts.values()
+                    if isinstance(item, dict) and item.get("home_account_id")}
+        except (ValueError, AttributeError, TypeError):
+            return set()
+
+    active_ids = identities(active_cache)
+    directories = {_account_dir(email)}
+    for candidate in ACCOUNTS_DIR.glob("*/msal-token-cache.json"):
+        if candidate.is_symlink() or candidate.parent.is_symlink():
+            continue
+        data = candidate.read_bytes()
+        candidate_ids = identities(data)
+        if (active_cache and data == active_cache) or (active_ids and candidate_ids == active_ids):
+            directories.add(candidate.parent)
+
     if STATE_FILE.exists():
         STATE_FILE.unlink()
-    for path in (_token_cache_path(email), _account_dir(email) / "last-list.json"):
-        if path.exists():
-            path.unlink()
+    for directory in directories:
+        for filename in ("msal-token-cache.json", "last-list.json"):
+            (directory / filename).unlink(missing_ok=True)
     return True

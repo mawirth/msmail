@@ -22,6 +22,12 @@ msmail --help
 .venv/bin/python -m compileall -q src
 ```
 
+All tests isolate account state in temporary directories and block live Graph
+and MSAL initialization unless explicitly stubbed. S/MIME regression tests use
+real OpenSSL with freshly generated synthetic certificates; these tests are
+skipped when OpenSSL is unavailable. Never replace these fixtures with live keys
+or token caches.
+
 Live Microsoft Graph tests are manual for now. Use a test account or a small
 set of clearly named smoke-test messages. Do not send or delete real mail while
 testing unless that is the explicit purpose of the test.

@@ -659,8 +659,10 @@ def test_create_forward_draft_posts_to_create_forward(monkeypatch):
         "access_token": "token",
         "body": {
             "comment": "FYI",
-            "toRecipients": [{"emailAddress": {"address": "bob@example.com"}}],
-            "ccRecipients": [{"emailAddress": {"address": "carol@example.com"}}],
+            "message": {
+                "toRecipients": [{"emailAddress": {"address": "bob@example.com"}}],
+                "ccRecipients": [{"emailAddress": {"address": "carol@example.com"}}],
+            },
         },
     }
 

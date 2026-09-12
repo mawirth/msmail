@@ -6,6 +6,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.text import Text
 
 from msmail.core import graph
 from msmail.core import mail
@@ -25,6 +26,7 @@ def _smime_metadata(message: mail.MessageDetail) -> dict[str, object]:
         "decrypted": None,
         "verified": None,
         "trusted": None,
+        "sender_matches": None,
         "error": None,
     }
 
@@ -42,19 +44,27 @@ def _print_smime_status(
         else:
             console.print("[bold]S/MIME:[/bold] encrypted, decrypt failed")
             if decrypt_result.error:
-                console.print(f"[yellow]{decrypt_result.error}[/yellow]")
+                console.print(decrypt_result.error, style="yellow", markup=False)
             return
 
     if smime_result is not None:
         if smime_result.verified:
-            console.print(f"[bold]S/MIME:[/bold] signed, trusted{decrypt_note}")
+            if smime_result.trusted:
+                status = "signed, trusted, sender matches"
+            elif smime_result.sender_matches is False:
+                status = "signed, sender mismatch (not trusted)"
+            else:
+                status = "signature valid, sender not checked"
+            console.print(f"[bold]S/MIME:[/bold] {status}{decrypt_note}")
             if smime_result.signer_certificate:
-                console.print(f"[bold]Signer:[/bold] {smime_result.signer_certificate.subject}")
-                console.print(f"[bold]Issuer:[/bold] {smime_result.signer_certificate.issuer}")
+                _print_field("Signer", smime_result.signer_certificate.subject)
+                _print_field("Issuer", smime_result.signer_certificate.issuer)
+            if smime_result.error:
+                console.print(smime_result.error, style="yellow", markup=False)
         elif smime_result.signed:
             console.print(f"[bold]S/MIME:[/bold] signed, invalid or untrusted{decrypt_note}")
             if smime_result.error:
-                console.print(f"[yellow]{smime_result.error}[/yellow]")
+                console.print(smime_result.error, style="yellow", markup=False)
         else:
             console.print(f"[bold]S/MIME:[/bold] not signed{decrypt_note}")
         return
@@ -80,13 +90,21 @@ def _render_body(message: mail.MessageDetail, raw_html: bool) -> str:
     return render.unwrap_safelinks_in_text(message.body_content)
 
 
-def _print_message(message: mail.MessageDetail, raw_html: bool) -> None:
-    console.print(f"[bold]From:[/bold] {message.from_name} <{message.from_address}>")
-    console.print(f"[bold]To:[/bold] {', '.join(message.to_addresses)}")
+def _print_field(label: str, value: str) -> None:
+    console.print(Text.assemble((f"{label}: ", "bold"), value))
+
+
+def _print_headers(message: mail.MessageDetail) -> None:
+    _print_field("From", f"{message.from_name} <{message.from_address}>")
+    _print_field("To", ', '.join(message.to_addresses))
     if message.cc_addresses:
-        console.print(f"[bold]Cc:[/bold] {', '.join(message.cc_addresses)}")
-    console.print(f"[bold]Date:[/bold] {message.received_date_time}")
-    console.print(f"[bold]Subject:[/bold] {message.subject}")
+        _print_field("Cc", ', '.join(message.cc_addresses))
+    _print_field("Date", message.received_date_time)
+    _print_field("Subject", message.subject)
+
+
+def _print_message(message: mail.MessageDetail, raw_html: bool) -> None:
+    _print_headers(message)
     if message.attachment_details_loaded:
         console.print(f"[bold]Attachments:[/bold] {message.attachment_count}")
     else:
@@ -94,9 +112,9 @@ def _print_message(message: mail.MessageDetail, raw_html: bool) -> None:
     for attachment in message.attachments:
         inline = " inline" if attachment.is_inline else ""
         size = f", {attachment.size} bytes" if attachment.size else ""
-        console.print(f"  - {attachment.name} ({attachment.attachment_type}{inline}{size})")
+        console.print(f"  - {attachment.name} ({attachment.attachment_type}{inline}{size})", markup=False)
     console.print("")
-    console.print(_render_body(message, raw_html))
+    console.print(_render_body(message, raw_html), markup=False)
 
 
 def read_message(
@@ -156,6 +174,7 @@ def read_message(
                     smime_result = smime.verify_signed_mime_bytes(
                         decrypted_bytes,
                         account_email=mime_account,
+                        expected_sender=message.from_address,
                     )
                     if smime_result.verified:
                         body_source = smime_result.data or body_source
@@ -167,6 +186,7 @@ def read_message(
             smime_result = smime.verify_signed_mime_bytes(
                 mime_bytes,
                 account_email=mime_account,
+                expected_sender=message.from_address,
             )
             body_source = (smime_result.data or mime_bytes) if smime_result.verified else mime_bytes
             mime_body, mime_body_type, mime_attachments = mime.body_from_mime(
@@ -205,7 +225,8 @@ def read_message(
                 {
                     "signed": smime_result.signed,
                     "verified": smime_result.verified,
-                    "trusted": smime_result.verified,
+                    "trusted": smime_result.trusted,
+                    "sender_matches": smime_result.sender_matches,
                     "error": smime_result.error,
                     "verified_path": smime_result.verified_path or None,
                     "signer_path": smime_result.signer_path,
@@ -225,29 +246,19 @@ def read_message(
 
     _print_smime_status(message, smime_result, decrypt_result)
     if decrypted_body is not None:
-        console.print(f"[bold]From:[/bold] {message.from_name} <{message.from_address}>")
-        console.print(f"[bold]To:[/bold] {', '.join(message.to_addresses)}")
-        if message.cc_addresses:
-            console.print(f"[bold]Cc:[/bold] {', '.join(message.cc_addresses)}")
-        console.print(f"[bold]Date:[/bold] {message.received_date_time}")
-        console.print(f"[bold]Subject:[/bold] {message.subject}")
+        _print_headers(message)
         console.print(f"[bold]Encrypted attachments:[/bold] {len(decrypted_attachments or [])}")
         for attachment in decrypted_attachments or []:
-            console.print(f"  - {attachment}")
+            console.print(f"  - {attachment}", markup=False)
         console.print("")
-        console.print(decrypted_body)
+        console.print(decrypted_body, markup=False)
         return
     if mime_body is not None:
-        console.print(f"[bold]From:[/bold] {message.from_name} <{message.from_address}>")
-        console.print(f"[bold]To:[/bold] {', '.join(message.to_addresses)}")
-        if message.cc_addresses:
-            console.print(f"[bold]Cc:[/bold] {', '.join(message.cc_addresses)}")
-        console.print(f"[bold]Date:[/bold] {message.received_date_time}")
-        console.print(f"[bold]Subject:[/bold] {message.subject}")
+        _print_headers(message)
         console.print(f"[bold]MIME attachments:[/bold] {len(mime_attachments or [])}")
         for attachment in mime_attachments or []:
-            console.print(f"  - {attachment}")
+            console.print(f"  - {attachment}", markup=False)
         console.print("")
-        console.print(mime_body)
+        console.print(mime_body, markup=False)
         return
     _print_message(message, raw_html)

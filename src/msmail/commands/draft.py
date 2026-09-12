@@ -33,13 +33,13 @@ def _recipient_summary(info: drafts.DraftInfo) -> str:
 
 
 def _print_draft_summary(info: drafts.DraftInfo) -> None:
-    console.print(f"From: {info.from_address}")
-    console.print(f"To: {', '.join(info.to)}")
+    console.print(f"From: {info.from_address}", markup=False)
+    console.print(f"To: {', '.join(info.to)}", markup=False)
     if info.cc:
-        console.print(f"Cc: {', '.join(info.cc)}")
+        console.print(f"Cc: {', '.join(info.cc)}", markup=False)
     if info.bcc:
-        console.print(f"Bcc: {', '.join(info.bcc)}")
-    console.print(f"Subject: {info.subject}")
+        console.print(f"Bcc: {', '.join(info.bcc)}", markup=False)
+    console.print(f"Subject: {info.subject}", markup=False)
     if info.has_attachments:
         console.print("Attachments: yes")
 
@@ -82,7 +82,7 @@ def create(
             template = compose.compose_template(
                 to=to or "",
                 subject=subject or "",
-                attach=", ".join(attach or []),
+                attachments=attach or [],
                 body=body_text,
             )
             if edit:
@@ -121,10 +121,10 @@ def create(
         return
 
     console.print(f"[green]Draft created[/green]: {result.id}")
-    console.print(f"To: {', '.join(result.to)}")
-    console.print(f"Subject: {result.subject}")
+    console.print(f"To: {', '.join(result.to)}", markup=False)
+    console.print(f"Subject: {result.subject}", markup=False)
     if result.attachments:
-        console.print(f"Attachments: {', '.join(result.attachments)}")
+        console.print(f"Attachments: {', '.join(result.attachments)}", markup=False)
     if draft.sign or draft.encrypt:
         console.print("[yellow]This S/MIME MIME draft cannot be edited with draft edit; review before sending.[/yellow]")
 
@@ -168,8 +168,8 @@ def edit(
         return
 
     console.print(f"[green]Draft updated[/green]: {result.id}")
-    console.print(f"To: {', '.join(result.to)}")
-    console.print(f"Subject: {result.subject}")
+    console.print(f"To: {', '.join(result.to)}", markup=False)
+    console.print(f"Subject: {result.subject}", markup=False)
 
 
 @app.command("send")
@@ -207,7 +207,7 @@ def send(
         console.print(f"[bold]{len(infos)} drafts ready to send[/bold]")
         for label, info in zip(labels, infos):
             recipients = _recipient_summary(info)
-            console.print(f"{label}: {recipients} | Subject: {info.subject}")
+            console.print(f"{label}: {recipients} | Subject: {info.subject}", markup=False)
 
     prompt = "Send this draft?" if len(infos) == 1 else f"Send {len(infos)} drafts?"
     if not yes and not Confirm.ask(prompt, default=False):

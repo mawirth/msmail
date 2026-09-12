@@ -464,6 +464,11 @@ def _build_filter(
     if before:
         filters.append(f"receivedDateTime lt {_start_of_day_utc(before)}")
 
+    if filters and not after and not before:
+        # Graph requires every $orderby property in $filter as well. This
+        # inclusive lower bound keeps the existing query's full date range.
+        filters.append("receivedDateTime ge 0001-01-01T00:00:00Z")
+
     return " and ".join(filters) if filters else None
 
 
@@ -501,7 +506,7 @@ def _collect_pages(
         values.extend(response.get("value") or [])
         next_link = response.get("@odata.nextLink")
         if not isinstance(next_link, str) or not next_link:
-            return values, None, False
+            return values[:fetch] if fetch is not None else values, None, False
         if fetch is not None and len(values) >= fetch:
             # Exactly one request was enough, so the cursor still lines up with
             # what the caller keeps; only a trimmed multi-page result loses it.
@@ -959,15 +964,19 @@ def save_attachments(
     if not destination_path.is_dir():
         raise ValueError(f"Attachment destination is not a directory: {destination}")
 
-    if decrypt:
+    if decrypt or verify_smime:
         mime_bytes, _mime_account = get_message_mime(message.id, account_email=account.email)
-        decrypt_result = smime.decrypt_mime_bytes(mime_bytes, account_email=account.email)
-        if not decrypt_result.decrypted:
-            raise ValueError(decrypt_result.error or "S/MIME decryption failed.")
-        clear_bytes = decrypt_result.data or b""
+        clear_bytes = mime_bytes
+        if decrypt:
+            decrypt_result = smime.decrypt_mime_bytes(mime_bytes, account_email=account.email)
+            if not decrypt_result.decrypted:
+                raise ValueError(decrypt_result.error or "S/MIME decryption failed.")
+            clear_bytes = decrypt_result.data or b""
         if verify_smime:
-            verify_result = smime.verify_signed_mime_bytes(clear_bytes, account_email=account.email)
-            if not verify_result.verified:
+            verify_result = smime.verify_signed_mime_bytes(
+                clear_bytes, account_email=account.email, expected_sender=message.from_address,
+            )
+            if not verify_result.trusted:
                 raise ValueError(verify_result.error or "S/MIME signature verification failed.")
             clear_bytes = verify_result.data or clear_bytes
         saved = [

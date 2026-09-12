@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import os
 import subprocess
@@ -45,13 +46,26 @@ def parse_bool(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _parse_attachments(value: str) -> list[str]:
+    if value.lstrip().startswith("["):
+        try:
+            paths = json.loads(value)
+        except ValueError as exc:
+            raise ValueError("Attach: must contain a valid JSON array of file paths.") from exc
+        if not isinstance(paths, list) or any(not isinstance(path, str) or not path for path in paths):
+            raise ValueError("Attach: must contain a JSON array of non-empty file paths.")
+        return paths
+    # Continue accepting hand-written legacy comma/semicolon-separated lists.
+    return parse_addresses(value)
+
+
 def parse_compose_text(content: str, *, html: bool = False) -> ComposeDraft:
     header_part, body = _split_compose_parts(content, require_separator=True)
     headers = _parse_headers(header_part)
 
     attachments = []
     for value in headers.get("attach", []) + headers.get("attachments", []):
-        attachments.extend(parse_addresses(value))
+        attachments.extend(_parse_attachments(value))
 
     draft = ComposeDraft(
         to=parse_addresses(",".join(headers.get("to", []))),
@@ -155,15 +169,18 @@ def compose_template(
     bcc: str = "",
     subject: str = "",
     attach: str = "",
+    attachments: list[str] | None = None,
     body: str = "",
 ) -> str:
+    paths = attachments if attachments is not None else ([attach] if attach else [])
+    attachment_header = json.dumps(paths, ensure_ascii=False) if paths else ""
     return "\n".join(
         [
             f"To: {to}",
             f"Cc: {cc}",
             f"Bcc: {bcc}",
             f"Subject: {subject}",
-            f"Attach: {attach}",
+            f"Attach: {attachment_header}",
             "Sign: no",
             "Encrypt: no",
             "",

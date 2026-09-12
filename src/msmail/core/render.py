@@ -15,14 +15,15 @@ SAFELINK_RE = re.compile(
 
 def unwrap_safelink(url: str) -> str:
     parsed = parse.urlparse(html.unescape(url))
-    if "safelinks.protection.outlook.com" not in parsed.netloc.lower():
+    host = (parsed.hostname or "").lower()
+    if host != "safelinks.protection.outlook.com" and not host.endswith(".safelinks.protection.outlook.com"):
         return url
 
     query = parse.parse_qs(parsed.query)
     original = query.get("url", [None])[0]
     if not original:
         return url
-    return parse.unquote(original)
+    return original
 
 
 def unwrap_safelinks_in_text(text: str) -> str:

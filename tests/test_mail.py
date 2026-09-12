@@ -810,6 +810,7 @@ def test_get_message_reports_smime_metadata_without_user_attachment(monkeypatch)
         "decrypted": None,
         "verified": None,
         "trusted": None,
+        "sender_matches": None,
         "error": None,
     }
 
