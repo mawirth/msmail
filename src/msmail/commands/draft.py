@@ -5,9 +5,9 @@ from dataclasses import asdict
 from typing import Optional
 
 import typer
-from rich.console import Console
 from rich.prompt import Confirm
 
+from msmail.console import console
 from msmail.core import compose
 from msmail.core import drafts
 from msmail.core import graph
@@ -15,10 +15,11 @@ from msmail.core import mail
 
 
 app = typer.Typer(
+    rich_markup_mode=None,
+    pretty_exceptions_enable=False,
     help="Create and manage drafts.",
     no_args_is_help=True,
 )
-console = Console()
 
 
 def _recipient_summary(info: drafts.DraftInfo) -> str:
@@ -111,7 +112,7 @@ def create(
             include_signature=not no_signature,
         )
     except compose.ComposeCancelled as exc:
-        console.print(f"[yellow]{exc}[/yellow]")
+        console.print(f"{exc}")
         raise typer.Exit()
     except (RuntimeError, ValueError, graph.GraphError) as exc:
         raise typer.BadParameter(str(exc)) from exc
@@ -120,13 +121,13 @@ def create(
         console.print_json(json.dumps(asdict(result)))
         return
 
-    console.print(f"[green]Draft created[/green]: {result.id}")
+    console.print(f"Draft created: {result.id}")
     console.print(f"To: {', '.join(result.to)}", markup=False)
     console.print(f"Subject: {result.subject}", markup=False)
     if result.attachments:
         console.print(f"Attachments: {', '.join(result.attachments)}", markup=False)
     if draft.sign or draft.encrypt:
-        console.print("[yellow]This S/MIME MIME draft cannot be edited with draft edit; review before sending.[/yellow]")
+        console.print("This S/MIME MIME draft cannot be edited with draft edit; review before sending.")
 
 
 @app.command("edit")
@@ -154,11 +155,11 @@ def edit(
             html=body_content_type.lower() == "html",
         )
         if updated is None:
-            console.print("[yellow]Draft not modified.[/yellow]")
+            console.print("Draft not modified.")
             raise typer.Exit()
         result = drafts.update_draft(info.id, updated, account_email=info.account, include_signature=False)
     except compose.ComposeCancelled as exc:
-        console.print(f"[yellow]{exc}[/yellow]")
+        console.print(f"{exc}")
         raise typer.Exit()
     except (RuntimeError, ValueError, graph.GraphError) as exc:
         raise typer.BadParameter(str(exc)) from exc
@@ -167,7 +168,7 @@ def edit(
         console.print_json(json.dumps(asdict(result)))
         return
 
-    console.print(f"[green]Draft updated[/green]: {result.id}")
+    console.print(f"Draft updated: {result.id}")
     console.print(f"To: {', '.join(result.to)}", markup=False)
     console.print(f"Subject: {result.subject}", markup=False)
 
@@ -210,8 +211,8 @@ def send(
             console.print(f"{label}: {recipients} | Subject: {info.subject}", markup=False)
 
     prompt = "Send this draft?" if len(infos) == 1 else f"Send {len(infos)} drafts?"
-    if not yes and not Confirm.ask(prompt, default=False):
-        console.print("[yellow]Send cancelled.[/yellow]")
+    if not yes and not Confirm.ask(prompt, default=False, console=console):
+        console.print("Send cancelled.")
         raise typer.Exit()
 
     try:
@@ -220,7 +221,7 @@ def send(
     except (RuntimeError, graph.GraphError) as exc:
         raise typer.BadParameter(str(exc)) from exc
 
-    console.print(f"[green]{len(infos)} draft(s) sent.[/green]")
+    console.print(f"{len(infos)} draft(s) sent.")
 
 
 @app.command("delete")
@@ -249,8 +250,8 @@ def delete(
         console.print("[bold]Draft ready to delete[/bold]")
         _print_draft_summary(info)
 
-    if not yes and not Confirm.ask("Delete this draft?", default=False):
-        console.print("[yellow]Delete cancelled.[/yellow]")
+    if not yes and not Confirm.ask("Delete this draft?", default=False, console=console):
+        console.print("Delete cancelled.")
         raise typer.Exit()
 
     try:
@@ -262,4 +263,4 @@ def delete(
         console.print_json(json.dumps(asdict(deleted)))
         return
 
-    console.print("[green]Draft deleted.[/green]")
+    console.print("Draft deleted.")

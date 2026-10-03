@@ -5,12 +5,9 @@ import json
 from typing import Optional
 
 import typer
-from rich.console import Console
 
+from msmail.console import console
 from msmail.core import doctor as doctor_core
-
-
-console = Console()
 
 
 def doctor(

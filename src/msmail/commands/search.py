@@ -5,16 +5,13 @@ from dataclasses import asdict
 from typing import Optional
 
 import typer
-from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from msmail.console import console
 from msmail.core import graph
 from msmail.core import mail
 from msmail.commands.list import render_position, render_table, resolve_fetch
-
-
-console = Console()
 
 
 def search_messages(

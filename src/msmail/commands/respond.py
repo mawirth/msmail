@@ -5,14 +5,11 @@ from dataclasses import asdict
 from typing import Optional
 
 import typer
-from rich.console import Console
 
+from msmail.console import console
 from msmail.core import compose
 from msmail.core import drafts
 from msmail.core import graph
-
-
-console = Console()
 
 
 def _response_from_inputs(
@@ -53,7 +50,7 @@ def _response_from_inputs(
 
 
 def _print_result(result: drafts.ResponseDraftResult) -> None:
-    console.print(f"[green]Draft created[/green]: {result.id}")
+    console.print(f"Draft created: {result.id}")
     console.print(f"Type: {result.response_type}")
     if result.to:
         console.print(f"To: {', '.join(result.to)}", markup=False)
@@ -101,7 +98,7 @@ def reply_message(
             include_signature=not no_signature,
         )
     except compose.ComposeCancelled as exc:
-        console.print(f"[yellow]{exc}[/yellow]")
+        console.print(f"{exc}")
         raise typer.Exit()
     except (RuntimeError, ValueError, graph.GraphError) as exc:
         raise typer.BadParameter(str(exc)) from exc
@@ -158,7 +155,7 @@ def forward_message(
             include_signature=not no_signature,
         )
     except compose.ComposeCancelled as exc:
-        console.print(f"[yellow]{exc}[/yellow]")
+        console.print(f"{exc}")
         raise typer.Exit()
     except (RuntimeError, ValueError, graph.GraphError) as exc:
         raise typer.BadParameter(str(exc)) from exc

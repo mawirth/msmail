@@ -5,17 +5,14 @@ from dataclasses import asdict
 from typing import Optional
 
 import typer
-from rich.console import Console
 from rich.text import Text
 
+from msmail.console import console
 from msmail.core import graph
 from msmail.core import mail
 from msmail.core import mime
 from msmail.core import render
 from msmail.core import smime
-
-
-console = Console()
 
 
 def _smime_metadata(message: mail.MessageDetail) -> dict[str, object]:
@@ -44,7 +41,7 @@ def _print_smime_status(
         else:
             console.print("[bold]S/MIME:[/bold] encrypted, decrypt failed")
             if decrypt_result.error:
-                console.print(decrypt_result.error, style="yellow", markup=False)
+                console.print(decrypt_result.error, markup=False)
             return
 
     if smime_result is not None:
@@ -60,11 +57,11 @@ def _print_smime_status(
                 _print_field("Signer", smime_result.signer_certificate.subject)
                 _print_field("Issuer", smime_result.signer_certificate.issuer)
             if smime_result.error:
-                console.print(smime_result.error, style="yellow", markup=False)
+                console.print(smime_result.error, markup=False)
         elif smime_result.signed:
             console.print(f"[bold]S/MIME:[/bold] signed, invalid or untrusted{decrypt_note}")
             if smime_result.error:
-                console.print(smime_result.error, style="yellow", markup=False)
+                console.print(smime_result.error, markup=False)
         else:
             console.print(f"[bold]S/MIME:[/bold] not signed{decrypt_note}")
         return

@@ -1,17 +1,18 @@
 from typing import Optional
 
 import typer
-from rich.console import Console
 
+from msmail.console import console
 from msmail.core import auth as auth_core
 
 
 app = typer.Typer(
+    rich_markup_mode=None,
+    pretty_exceptions_enable=False,
     help="Authenticate and inspect Microsoft mail accounts.",
     invoke_without_command=True,
     no_args_is_help=True,
 )
-console = Console()
 
 
 @app.callback()
@@ -54,14 +55,14 @@ def auth(
                 f"{active_email}. Log in as {requested_email} and make it active?"
             )
             if not switch:
-                console.print("[yellow]Login cancelled.[/yellow]")
+                console.print("Login cancelled.")
                 raise typer.Exit(code=1)
 
         def show_device_code(device_login: auth_core.DeviceLogin) -> None:
             console.print(device_login.message)
 
         result = auth_core.login(requested_email, on_device_code=show_device_code)
-        console.print(f"[green]Logged in[/green]: {result.account.email}")
+        console.print(f"Logged in: {result.account.email}")
         if result.account.display_name:
             console.print(f"Name: {result.account.display_name}")
         raise typer.Exit()
@@ -69,7 +70,7 @@ def auth(
     if whoami:
         account = auth_core.whoami()
         if account is None:
-            console.print("[yellow]No active account.[/yellow]")
+            console.print("No active account.")
         else:
             console.print(account.email)
             if account.display_name:
@@ -81,7 +82,7 @@ def auth(
     if logout:
         result = auth_core.logout()
         if result:
-            console.print("[green]Logged out.[/green]")
+            console.print("Logged out.")
         else:
-            console.print("[yellow]No active account to log out.[/yellow]")
+            console.print("No active account to log out.")
         raise typer.Exit()

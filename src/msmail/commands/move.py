@@ -5,14 +5,11 @@ from dataclasses import asdict
 from typing import Optional
 
 import typer
-from rich.console import Console
 from rich.prompt import Confirm
 
+from msmail.console import console
 from msmail.core import graph
 from msmail.core import mail
-
-
-console = Console()
 
 
 def move_message(
@@ -68,8 +65,8 @@ def move_message(
         console.print(f"Destination: {normalized_folder}", markup=False)
 
     prompt = "Move this message?" if len(previews) == 1 else f"Move {len(previews)} messages?"
-    if not yes and not Confirm.ask(prompt, default=False):
-        console.print("[yellow]Move cancelled.[/yellow]")
+    if not yes and not Confirm.ask(prompt, default=False, console=console):
+        console.print("Move cancelled.")
         raise typer.Exit()
 
     try:
@@ -90,4 +87,4 @@ def move_message(
         console.print_json(json.dumps(payload[0] if len(payload) == 1 else payload))
         return
 
-    console.print(f"[green]{len(results)} message(s) moved[/green]: {normalized_folder}")
+    console.print(f"{len(results)} message(s) moved: {normalized_folder}")

@@ -5,13 +5,10 @@ from dataclasses import asdict
 from typing import Optional
 
 import typer
-from rich.console import Console
 
+from msmail.console import console
 from msmail.core import graph
 from msmail.core import mail
-
-
-console = Console()
 
 
 def mark_message(
@@ -57,6 +54,6 @@ def mark_message(
         return
 
     state = "read" if read else "unread"
-    console.print(f"[green]{len(results)} message(s) marked {state}.[/green]")
+    console.print(f"{len(results)} message(s) marked {state}.")
     if len(results) == 1:
         console.print(f"Subject: {results[0].subject}", markup=False)

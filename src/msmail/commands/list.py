@@ -7,15 +7,12 @@ from dataclasses import asdict
 from typing import Optional
 
 import typer
-from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from msmail.console import console
 from msmail.core import graph
 from msmail.core import mail
-
-
-console = Console()
 
 
 def shorten_middle(value: str, width: int) -> str:
@@ -70,8 +67,8 @@ def render_position(state: mail.MessageList) -> None:
     """
     if state.truncated:
         console.print(
-            f"[yellow]Stopped after {mail.MAX_PAGES} pages "
-            f"({len(state.messages)} messages); narrow the query to see the rest.[/yellow]"
+            f"Stopped after {mail.MAX_PAGES} pages "
+            f"({len(state.messages)} messages); narrow the query to see the rest."
         )
     if not state.messages:
         return
@@ -83,7 +80,7 @@ def render_position(state: mail.MessageList) -> None:
     if state.next_link:
         parts.append("more: [bold]msmail list --more[/bold]")
     if parts:
-        console.print(f"[dim]{' · '.join(parts)}[/dim]")
+        console.print(" · ".join(parts))
 
 
 def render_table(messages: list[mail.MessageSummary]) -> None:

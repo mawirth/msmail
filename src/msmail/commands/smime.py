@@ -5,16 +5,17 @@ from dataclasses import asdict
 from typing import Optional
 
 import typer
-from rich.console import Console
 
+from msmail.console import console
 from msmail.core import smime as smime_core
 
 
 app = typer.Typer(
+    rich_markup_mode=None,
+    pretty_exceptions_enable=False,
     help="Configure and inspect S/MIME material.",
     no_args_is_help=True,
 )
-console = Console()
 
 
 @app.command("setup")
@@ -41,7 +42,7 @@ def setup(
         console.print_json(json.dumps(asdict(result)))
         return
 
-    console.print(f"[green]S/MIME configured[/green]: {result.account}")
+    console.print(f"S/MIME configured: {result.account}")
     console.print(f"Directory: {result.paths.directory}")
     console.print(f"Certificate: {result.certificate.subject}")
     console.print(f"Issuer: {result.certificate.issuer}")
@@ -97,7 +98,7 @@ def import_recipient(
         console.print_json(json.dumps(asdict(result)))
         return
 
-    console.print(f"[green]Recipient certificate imported[/green]: {result.email}")
+    console.print(f"Recipient certificate imported: {result.email}")
     console.print(f"Path: {result.path}")
     console.print(f"Subject: {result.certificate.subject}")
     console.print(f"Valid until: {result.certificate.not_after}")
@@ -121,7 +122,7 @@ def test_sign(
         console.print_json(json.dumps(asdict(result)))
         return
 
-    console.print(f"[green]S/MIME local sign/verify OK[/green]: {result.account}")
+    console.print(f"S/MIME local sign/verify OK: {result.account}")
     console.print(f"Unsigned: {result.unsigned_path}")
     console.print(f"Signed: {result.signed_path}")
     console.print(f"Verified: {result.verified_path}")

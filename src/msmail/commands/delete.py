@@ -5,14 +5,11 @@ from dataclasses import asdict
 from typing import Optional
 
 import typer
-from rich.console import Console
 from rich.prompt import Confirm
 
+from msmail.console import console
 from msmail.core import graph
 from msmail.core import mail
-
-
-console = Console()
 
 
 def _print_summary(result: mail.MessageOperationResult) -> None:
@@ -77,8 +74,8 @@ def delete_message(
             _print_batch_summary(items, previews)
 
     prompt = "Delete this message?" if len(previews) == 1 else f"Delete {len(previews)} messages?"
-    if not yes and not Confirm.ask(prompt, default=False):
-        console.print("[yellow]Delete cancelled.[/yellow]")
+    if not yes and not Confirm.ask(prompt, default=False, console=console):
+        console.print("Delete cancelled.")
         raise typer.Exit()
 
     try:
@@ -91,4 +88,4 @@ def delete_message(
         console.print_json(json.dumps(payload[0] if len(payload) == 1 else payload))
         return
 
-    console.print(f"[green]{len(results)} message(s) deleted.[/green]")
+    console.print(f"{len(results)} message(s) deleted.")

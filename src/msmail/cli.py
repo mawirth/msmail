@@ -16,6 +16,8 @@ from msmail.commands import smime as smime_command
 
 
 app = typer.Typer(
+    rich_markup_mode=None,
+    pretty_exceptions_enable=False,
     help="Microsoft Graph mail CLI.",
     no_args_is_help=True,
 )

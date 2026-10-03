@@ -6,13 +6,10 @@ from pathlib import Path
 from typing import Optional
 
 import typer
-from rich.console import Console
 from rich.prompt import Confirm
 
+from msmail.console import console
 from msmail.core import compose, drafts, graph
-
-
-console = Console()
 
 
 def _with_smime(
@@ -100,8 +97,8 @@ def send_message(
             if draft.attachments:
                 console.print(f"Attachments: {', '.join(draft.attachments)}", markup=False)
 
-        if not yes and not Confirm.ask("Send this message?", default=False):
-            console.print("[yellow]Send cancelled.[/yellow]")
+        if not yes and not Confirm.ask("Send this message?", default=False, console=console):
+            console.print("Send cancelled.")
             raise typer.Exit()
 
         result = drafts.create_and_send(
@@ -116,4 +113,4 @@ def send_message(
         console.print_json(json.dumps(asdict(result)))
         return
 
-    console.print(f"[green]Message sent[/green]: {result.id}")
+    console.print(f"Message sent: {result.id}")

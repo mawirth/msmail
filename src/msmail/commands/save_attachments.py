@@ -5,13 +5,10 @@ from dataclasses import asdict
 from typing import Optional
 
 import typer
-from rich.console import Console
 
+from msmail.console import console
 from msmail.core import graph
 from msmail.core import mail
-
-
-console = Console()
 
 
 def save_attachments(
@@ -50,9 +47,9 @@ def save_attachments(
         return
 
     if not result.saved:
-        console.print("[yellow]No file attachments saved.[/yellow]")
+        console.print("No file attachments saved.")
     for saved in result.saved:
-        console.print("[green]Saved[/green]", end=" ")
+        console.print("Saved", end=" ")
         console.print(f"{saved.name}: {saved.path}", markup=False)
     if result.skipped:
-        console.print(f"[yellow]Skipped {result.skipped} unsupported or inline attachment(s).[/yellow]")
+        console.print(f"Skipped {result.skipped} unsupported or inline attachment(s).")
