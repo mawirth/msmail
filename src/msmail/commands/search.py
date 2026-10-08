@@ -9,7 +9,6 @@ from rich.table import Table
 from rich.text import Text
 
 from msmail.console import console
-from msmail.core import graph
 from msmail.core import mail
 from msmail.commands.list import render_position, render_table, resolve_fetch
 
@@ -25,10 +24,7 @@ def search_messages(
     json_output: bool = typer.Option(False, "--json", help="Print JSON output."),
     account: Optional[str] = typer.Option(None, "--account", help="Mail account email address."),
 ) -> None:
-    try:
-        state = mail.search_messages(query, fetch=resolve_fetch(fetch), account_email=account)
-    except (RuntimeError, ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    state = mail.search_messages(query, fetch=resolve_fetch(fetch), account_email=account)
 
     if json_output:
         console.print_json(json.dumps([asdict(message) for message in state.messages]))
@@ -42,10 +38,7 @@ def list_folders(
     json_output: bool = typer.Option(False, "--json", help="Print JSON output."),
     account: Optional[str] = typer.Option(None, "--account", help="Mail account email address."),
 ) -> None:
-    try:
-        folders = mail.list_folders(account_email=account)
-    except (RuntimeError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    folders = mail.list_folders(account_email=account)
 
     if json_output:
         console.print_json(json.dumps([asdict(folder) for folder in folders]))

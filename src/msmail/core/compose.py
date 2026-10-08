@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 import os
@@ -286,3 +286,38 @@ def edit_compose_interactively(template: str, *, html: bool = False) -> ComposeD
         prefix="msmail-draft-",
         parse=lambda content: parse_compose_text(content, html=html),
     )
+
+
+def draft_from_inputs(
+    *,
+    file: str | None = None,
+    to: str | None = None,
+    cc: str | None = None,
+    bcc: str | None = None,
+    subject: str | None = None,
+    body: str | None = None,
+    body_file: str | None = None,
+    attachments: list[str] | None = None,
+    html: bool = False,
+    sign: bool = False,
+    encrypt: bool = False,
+    edit: bool = False,
+    interactive: bool = False,
+) -> ComposeDraft:
+    direct = any(value is not None for value in (to, cc, bcc, subject, body, body_file)) or bool(attachments)
+    if file is not None:
+        if direct or edit:
+            raise ValueError("--file cannot be combined with recipient, subject, body, attachment options or --edit.")
+        draft = read_compose_file(file, html=html)
+    else:
+        if body is not None and body_file is not None:
+            raise ValueError("Use only one of --body or --body-file.")
+        if not direct and not interactive:
+            raise ValueError("Provide --file or direct message options; direct send never opens an editor.")
+        body_text = Path(body_file).read_text(encoding="utf-8") if body_file is not None else body or ""
+        template = compose_template(
+            to=to or "", cc=cc or "", bcc=bcc or "", subject=subject or "",
+            attachments=attachments or [], body=body_text,
+        )
+        draft = compose_interactively(template, html=html) if edit or not direct else parse_compose_text(template, html=html)
+    return replace(draft, sign=sign or draft.sign, encrypt=encrypt or draft.encrypt)

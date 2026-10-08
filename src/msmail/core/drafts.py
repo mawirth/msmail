@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import mimetypes
 from pathlib import Path
 from typing import Any, Optional
 
 from msmail.core import auth, compose, graph, render, signature, smime
 from msmail.core import mail
+from msmail.core.errors import MsmailError
 
 
 MAX_SIMPLE_ATTACHMENT_BYTES = 3 * 1024 * 1024
@@ -345,21 +346,14 @@ def create_draft(
 ) -> DraftResult:
     attachments = _attachment_files(draft)
     access_token, account = auth.get_access_token(account_email)
-    draft = compose.ComposeDraft(
-        to=draft.to,
-        cc=draft.cc,
-        bcc=draft.bcc,
-        subject=draft.subject,
+    draft = replace(
+        draft,
         body=_prepare_body(
             draft.body,
             account_email=account.email,
             content_type=draft.body_content_type,
             include_signature=include_signature,
         ),
-        body_content_type=draft.body_content_type,
-        attachments=draft.attachments,
-        sign=draft.sign,
-        encrypt=draft.encrypt,
     )
 
     if draft.sign or draft.encrypt:
@@ -387,6 +381,20 @@ def create_draft(
     )
 
 
+def _draft_info(message: dict[str, Any], message_id: str, account_email: str) -> DraftInfo:
+    return DraftInfo(
+        account=account_email,
+        id=message.get("id") or message_id,
+        subject=message.get("subject") or "",
+        from_address=_email_address(message.get("from")) or _email_address(message.get("sender")) or account_email,
+        to=_addresses(message.get("toRecipients") or []),
+        cc=_addresses(message.get("ccRecipients") or []),
+        bcc=_addresses(message.get("bccRecipients") or []),
+        has_attachments=bool(message.get("hasAttachments")),
+        is_draft=bool(message.get("isDraft")),
+    )
+
+
 def get_draft_info(reference: str, account_email: Optional[str] = None) -> DraftInfo:
     message_id, resolved_account = mail.resolve_message_reference(reference, account_email)
     access_token, account = auth.get_access_token(resolved_account)
@@ -398,17 +406,7 @@ def get_draft_info(reference: str, account_email: Optional[str] = None) -> Draft
             "$select": "id,subject,from,sender,toRecipients,ccRecipients,bccRecipients,hasAttachments,isDraft"
         },
     )
-    info = DraftInfo(
-        account=account.email,
-        id=message.get("id") or message_id,
-        subject=message.get("subject") or "",
-        from_address=_email_address(message.get("from")) or _email_address(message.get("sender")) or account.email,
-        to=_addresses(message.get("toRecipients") or []),
-        cc=_addresses(message.get("ccRecipients") or []),
-        bcc=_addresses(message.get("bccRecipients") or []),
-        has_attachments=bool(message.get("hasAttachments")),
-        is_draft=bool(message.get("isDraft")),
-    )
+    info = _draft_info(message, message_id, account.email)
     if not info.is_draft:
         raise ValueError("Refusing to send: selected message is not a draft.")
     return info
@@ -433,17 +431,7 @@ def compose_template_for_draft(
             "$select": "id,subject,from,sender,toRecipients,ccRecipients,bccRecipients,body,hasAttachments,isDraft"
         },
     )
-    info = DraftInfo(
-        account=account.email,
-        id=message.get("id") or message_id,
-        subject=message.get("subject") or "",
-        from_address=_email_address(message.get("from")) or _email_address(message.get("sender")) or account.email,
-        to=_addresses(message.get("toRecipients") or []),
-        cc=_addresses(message.get("ccRecipients") or []),
-        bcc=_addresses(message.get("bccRecipients") or []),
-        has_attachments=bool(message.get("hasAttachments")),
-        is_draft=bool(message.get("isDraft")),
-    )
+    info = _draft_info(message, message_id, account.email)
     if not info.is_draft:
         raise ValueError("Refusing to edit: selected message is not a draft.")
     if info.has_attachments:
@@ -471,21 +459,14 @@ def update_draft(
     _reject_unsupported(draft)
     attachments = _attachment_files(draft)
     access_token, account = auth.get_access_token(account_email)
-    draft = compose.ComposeDraft(
-        to=draft.to,
-        cc=draft.cc,
-        bcc=draft.bcc,
-        subject=draft.subject,
+    draft = replace(
+        draft,
         body=_prepare_body(
             draft.body,
             account_email=account.email,
             content_type=draft.body_content_type,
             include_signature=include_signature,
         ),
-        body_content_type=draft.body_content_type,
-        attachments=draft.attachments,
-        sign=draft.sign,
-        encrypt=draft.encrypt,
     )
     draft_path_id = graph.quote_path_segment(draft_id)
     graph.patch_json(
@@ -528,11 +509,11 @@ def create_and_send(
         include_signature=include_signature,
     )
     if not created.id:
-        raise RuntimeError("Graph created no usable draft ID; message was not sent.")
+        raise MsmailError("Graph created no usable draft ID; message was not sent.")
     try:
         send_draft(created.id, account_email=created.account)
-    except (RuntimeError, graph.GraphError) as exc:
-        raise RuntimeError(
+    except MsmailError as exc:
+        raise MsmailError(
             f"Draft {created.id} was created but could not be sent: {exc}"
         ) from exc
     return SentMessageResult(
@@ -594,17 +575,14 @@ def create_reply_draft(
             response_type="reply-all" if reply_all else "reply",
         )
 
-    response = compose.ResponseDraft(
-        to=response.to,
-        cc=response.cc,
-        bcc=response.bcc,
+    response = replace(
+        response,
         body=_prepare_body(
             response.body,
             account_email=account.email,
             content_type=response.body_content_type,
             include_signature=include_signature,
         ),
-        body_content_type=response.body_content_type,
     )
     message_path_id = graph.quote_path_segment(message_id)
     action = "createReplyAll" if reply_all else "createReply"
@@ -663,17 +641,14 @@ def create_forward_draft(
             response_type="forward",
         )
 
-    response = compose.ResponseDraft(
-        to=response.to,
-        cc=response.cc,
-        bcc=response.bcc,
+    response = replace(
+        response,
         body=_prepare_body(
             response.body,
             account_email=account.email,
             content_type=response.body_content_type,
             include_signature=include_signature,
         ),
-        body_content_type=response.body_content_type,
     )
     message_path_id = graph.quote_path_segment(message_id)
     draft = graph.post_json(

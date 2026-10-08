@@ -714,3 +714,25 @@ def test_empty_trusted_ca_path_is_not_mistaken_for_a_file(tmp_path):
 
     assert bundle is not None
     assert bundle.read_text(encoding="utf-8").strip() == "-----OWN CA-----"
+
+
+@pytest.mark.parametrize('operation', ['sign_mime', 'encrypt_mime', 'decrypt_mime_bytes', 'verify_signed_mime_bytes'])
+@pytest.mark.parametrize('owned', [True, False])
+def test_working_directory_lifetime_on_partial_write(monkeypatch, tmp_path, operation, owned):
+    directory = tmp_path / 'msmail-smime-partial'
+    directory.mkdir()
+    monkeypatch.setattr(smime, '_working_dir', lambda *args: (directory, owned))
+    monkeypatch.setattr(smime, 'require_configured', lambda *args: ('me@example.invalid', None))
+    monkeypatch.setattr(smime, 'verification_material', lambda *args: ('me@example.invalid', None))
+    monkeypatch.setattr(smime, 'recipient_certificates', lambda *args, **kwargs: [])
+    original_write = Path.write_bytes
+
+    def partial_write(path, data):
+        original_write(path, data[:4])
+        raise OSError('synthetic disk full')
+
+    monkeypatch.setattr(Path, 'write_bytes', partial_write)
+    kwargs = {'recipients': ['to@example.invalid']} if operation == 'encrypt_mime' else {}
+    with pytest.raises(OSError, match='disk full'):
+        getattr(smime, operation)(b'synthetic cleartext', **kwargs)
+    assert directory.exists() is not owned

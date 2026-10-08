@@ -60,6 +60,24 @@ src/msmail/
 `commands/` contains Typer-facing command handlers and presentation logic.
 `core/` contains code that should be testable without Typer.
 
+The root CLI group translates expected `MsmailError`, `OSError` and `ValueError`
+failures into stderr diagnostics with exit status 1. Argument parsing still uses
+Typer's usage errors (status 2). Keep unexpected programming errors visible.
+Command handlers do not need their own copies of this error translation.
+
+`auth.token_session()` scopes credential reuse to one CLI invocation. Accounts
+are cached separately, tokens nearing expiry are reacquired, and credentials
+are discarded from this in-memory scope even when a command fails. Local
+reference resolution uses profile state without authenticating.
+
+`commands/common.py` reports completed IDs when a batch stops on an error.
+Successful Graph mutations are not rolled back or reported as failed merely
+because local list-cache maintenance failed; refresh the list after its warning.
+
+Compose input validation is shared by `send` and `draft create`. Outgoing
+body/signing changes use `dataclasses.replace()` to preserve other draft fields.
+S/MIME working-directory ownership and failure cleanup are managed centrally.
+
 ## State Model
 
 Runtime state is intentionally outside the repository:

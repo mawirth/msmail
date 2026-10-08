@@ -1,4 +1,9 @@
 import typer
+from click import ClickException
+from typer.core import TyperGroup
+
+from msmail.core import auth as auth_core
+from msmail.core.errors import MsmailError
 
 from msmail.commands import auth
 from msmail.commands import delete as delete_command
@@ -15,7 +20,17 @@ from msmail.commands import respond as respond_command
 from msmail.commands import smime as smime_command
 
 
+class MailGroup(TyperGroup):
+    def invoke(self, ctx):
+        with auth_core.token_session():
+            try:
+                return super().invoke(ctx)
+            except (MsmailError, OSError, ValueError) as exc:
+                raise ClickException(str(exc)) from exc
+
+
 app = typer.Typer(
+    cls=MailGroup,
     rich_markup_mode=None,
     pretty_exceptions_enable=False,
     help="Microsoft Graph mail CLI.",

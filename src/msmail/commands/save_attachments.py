@@ -7,7 +7,6 @@ from typing import Optional
 import typer
 
 from msmail.console import console
-from msmail.core import graph
 from msmail.core import mail
 
 
@@ -29,18 +28,15 @@ def save_attachments(
     if bool(reference) == bool(message_id):
         raise typer.BadParameter("Use either INDEX_OR_ID or --id.")
 
-    try:
-        result = mail.save_attachments(
-            message_id or reference or "",
-            destination=destination,
-            overwrite=overwrite,
-            include_inline=include_inline,
-            decrypt=decrypt,
-            verify_smime=verify_smime,
-            account_email=account,
-        )
-    except (ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    result = mail.save_attachments(
+        message_id or reference or "",
+        destination=destination,
+        overwrite=overwrite,
+        include_inline=include_inline,
+        decrypt=decrypt,
+        verify_smime=verify_smime,
+        account_email=account,
+    )
 
     if json_output:
         console.print_json(json.dumps(asdict(result)))

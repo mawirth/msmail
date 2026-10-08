@@ -7,10 +7,10 @@ from typing import Optional
 import typer
 from rich.prompt import Confirm
 
+from msmail.commands.common import run_batch
 from msmail.console import console
 from msmail.core import compose
 from msmail.core import drafts
-from msmail.core import graph
 from msmail.core import mail
 
 
@@ -67,44 +67,11 @@ def create(
     account: Optional[str] = typer.Option(None, "--account", help="Mail account email address."),
 ) -> None:
     try:
-        if file:
-            if attach:
-                raise ValueError("--attach cannot be combined with --file; use Attach: in the compose file.")
-            if edit:
-                raise ValueError("--edit cannot be combined with --file.")
-            draft = compose.read_compose_file(file, html=html)
-        elif to or subject or body or body_file or attach:
-            if body and body_file:
-                raise ValueError("Use only one of --body or --body-file.")
-            body_text = body or ""
-            if body_file:
-                with open(body_file, encoding="utf-8") as handle:
-                    body_text = handle.read()
-            template = compose.compose_template(
-                to=to or "",
-                subject=subject or "",
-                attachments=attach or [],
-                body=body_text,
-            )
-            if edit:
-                draft = compose.compose_interactively(template, html=html)
-            else:
-                draft = compose.parse_compose_text(template, html=html)
-        else:
-            draft = compose.compose_interactively(compose.compose_template(), html=html)
-
-        if sign or encrypt:
-            draft = compose.ComposeDraft(
-                to=draft.to,
-                cc=draft.cc,
-                bcc=draft.bcc,
-                subject=draft.subject,
-                body=draft.body,
-                body_content_type=draft.body_content_type,
-                attachments=draft.attachments,
-                sign=sign or draft.sign,
-                encrypt=encrypt or draft.encrypt,
-            )
+        draft = compose.draft_from_inputs(
+            file=file, to=to, subject=subject, body=body, body_file=body_file,
+            attachments=attach, html=html, sign=sign, encrypt=encrypt,
+            edit=edit, interactive=True,
+        )
 
         result = drafts.create_draft(
             draft,
@@ -114,8 +81,6 @@ def create(
     except compose.ComposeCancelled as exc:
         console.print(f"{exc}")
         raise typer.Exit()
-    except (RuntimeError, ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
 
     if json_output:
         console.print_json(json.dumps(asdict(result)))
@@ -161,8 +126,6 @@ def edit(
     except compose.ComposeCancelled as exc:
         console.print(f"{exc}")
         raise typer.Exit()
-    except (RuntimeError, ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
 
     if json_output:
         console.print_json(json.dumps(asdict(result)))
@@ -187,19 +150,16 @@ def send(
     if bool(reference) == bool(draft_id):
         raise typer.BadParameter("Use either INDEX_OR_ID or --id.")
 
-    try:
-        if draft_id:
-            infos = [drafts.get_draft_info(draft_id, account_email=account)]
-            labels = [draft_id]
-        else:
-            items, resolved_account = mail.resolve_message_reference_items(
-                reference or "",
-                account_email=account,
-            )
-            infos = [drafts.get_draft_info(item.id, account_email=resolved_account) for item in items]
-            labels = [f"#{item.index}" if item.index else item.id for item in items]
-    except (RuntimeError, ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    if draft_id:
+        infos = [drafts.get_draft_info(draft_id, account_email=account)]
+        labels = [draft_id]
+    else:
+        items, resolved_account = mail.resolve_message_reference_items(
+            reference or "",
+            account_email=account,
+        )
+        infos = [drafts.get_draft_info(item.id, account_email=resolved_account) for item in items]
+        labels = [f"#{item.index}" if item.index else item.id for item in items]
 
     if len(infos) == 1:
         console.print("[bold]Draft ready to send[/bold]")
@@ -215,11 +175,11 @@ def send(
         console.print("Send cancelled.")
         raise typer.Exit()
 
-    try:
-        for info in infos:
-            drafts.send_draft(info.id, account_email=info.account)
-    except (RuntimeError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    run_batch(
+        infos,
+        lambda info: drafts.send_draft(info.id, account_email=info.account),
+        identify=lambda info: info.id,
+    )
 
     console.print(f"{len(infos)} draft(s) sent.")
 
@@ -241,10 +201,7 @@ def delete(
     if json_output and not yes:
         raise typer.BadParameter("--json requires --yes for delete.")
 
-    try:
-        info = drafts.get_draft_info(draft_id or reference or "", account_email=account)
-    except (RuntimeError, ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    info = drafts.get_draft_info(draft_id or reference or "", account_email=account)
 
     if not json_output:
         console.print("[bold]Draft ready to delete[/bold]")
@@ -254,10 +211,7 @@ def delete(
         console.print("Delete cancelled.")
         raise typer.Exit()
 
-    try:
-        deleted = drafts.delete_draft(info.id, account_email=info.account)
-    except (RuntimeError, ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    deleted = drafts.delete_draft(info.id, account_email=info.account)
 
     if json_output:
         console.print_json(json.dumps(asdict(deleted)))

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Report expected CLI failures consistently without tracebacks; diagnose corrupt
+  account state. Operational failures use exit status 1 (usage errors remain 2).
+- Keep successful mail mutations successful when local list-cache updates fail;
+  warn separately and report completed IDs when a batch stops on an error.
+- Clean owned S/MIME working directories even after partial file writes or
+  failures while preparing verification material.
+- Prefer the requested MIME body type before falling back to another alternative.
+- Resolve message references locally, reuse unexpired tokens within a CLI
+  invocation, and reuse delete/move previews instead of fetching messages twice.
+- Share compose input validation between send and draft creation; reject
+  conflicting file/direct options instead of silently ignoring them.
+- Simplify draft copies and metadata mapping.
+
 ## 0.1.0 - Unreleased
 
 - Check the S/MIME signer against the message's From address. JSON now separates

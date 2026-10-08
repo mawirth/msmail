@@ -2,35 +2,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
-from pathlib import Path
 from typing import Optional
 
 import typer
 from rich.prompt import Confirm
 
 from msmail.console import console
-from msmail.core import compose, drafts, graph
-
-
-def _with_smime(
-    draft: compose.ComposeDraft,
-    *,
-    sign: bool,
-    encrypt: bool,
-) -> compose.ComposeDraft:
-    if not sign and not encrypt:
-        return draft
-    return compose.ComposeDraft(
-        to=draft.to,
-        cc=draft.cc,
-        bcc=draft.bcc,
-        subject=draft.subject,
-        body=draft.body,
-        body_content_type=draft.body_content_type,
-        attachments=draft.attachments,
-        sign=sign or draft.sign,
-        encrypt=encrypt or draft.encrypt,
-    )
+from msmail.core import compose, drafts
 
 
 def send_message(
@@ -58,56 +36,31 @@ def send_message(
     if json_output and not yes:
         raise typer.BadParameter("--json requires --yes for direct sending.")
 
-    try:
-        direct_values = [to, cc, bcc, subject, body, body_file]
-        if file:
-            if any(value is not None for value in direct_values) or attach:
-                raise ValueError(
-                    "--file cannot be combined with recipient, subject, body, or attachment options."
-                )
-            draft = compose.read_compose_file(file, html=html)
-        else:
-            if body is not None and body_file is not None:
-                raise ValueError("Use only one of --body or --body-file.")
-            if not any(value is not None for value in direct_values) and not attach:
-                raise ValueError("Provide --file or direct message options; direct send never opens an editor.")
-            body_text = body or ""
-            if body_file:
-                body_text = Path(body_file).read_text(encoding="utf-8")
-            template = compose.compose_template(
-                to=to or "",
-                cc=cc or "",
-                bcc=bcc or "",
-                subject=subject or "",
-                attachments=attach or [],
-                body=body_text,
-            )
-            draft = compose.parse_compose_text(template, html=html)
+    draft = compose.draft_from_inputs(
+        file=file, to=to, cc=cc, bcc=bcc, subject=subject, body=body,
+        body_file=body_file, attachments=attach, html=html, sign=sign, encrypt=encrypt,
+    )
 
-        draft = _with_smime(draft, sign=sign, encrypt=encrypt)
+    if not json_output:
+        console.print("[bold]Message ready to send[/bold]")
+        console.print(f"To: {', '.join(draft.to)}", markup=False)
+        if draft.cc:
+            console.print(f"Cc: {', '.join(draft.cc)}", markup=False)
+        if draft.bcc:
+            console.print(f"Bcc: {', '.join(draft.bcc)}", markup=False)
+        console.print(f"Subject: {draft.subject}", markup=False)
+        if draft.attachments:
+            console.print(f"Attachments: {', '.join(draft.attachments)}", markup=False)
 
-        if not json_output:
-            console.print("[bold]Message ready to send[/bold]")
-            console.print(f"To: {', '.join(draft.to)}", markup=False)
-            if draft.cc:
-                console.print(f"Cc: {', '.join(draft.cc)}", markup=False)
-            if draft.bcc:
-                console.print(f"Bcc: {', '.join(draft.bcc)}", markup=False)
-            console.print(f"Subject: {draft.subject}", markup=False)
-            if draft.attachments:
-                console.print(f"Attachments: {', '.join(draft.attachments)}", markup=False)
+    if not yes and not Confirm.ask("Send this message?", default=False, console=console):
+        console.print("Send cancelled.")
+        raise typer.Exit()
 
-        if not yes and not Confirm.ask("Send this message?", default=False, console=console):
-            console.print("Send cancelled.")
-            raise typer.Exit()
-
-        result = drafts.create_and_send(
-            draft,
-            account_email=account,
-            include_signature=not no_signature,
-        )
-    except (OSError, RuntimeError, ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    result = drafts.create_and_send(
+        draft,
+        account_email=account,
+        include_signature=not no_signature,
+    )
 
     if json_output:
         console.print_json(json.dumps(asdict(result)))

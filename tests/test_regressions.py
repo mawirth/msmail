@@ -33,6 +33,7 @@ def isolate_state(monkeypatch, tmp_path):
 
 
 def fake_auth(monkeypatch):
+    monkeypatch.setattr(auth, "active_email", lambda: "me@example.invalid")
     monkeypatch.setattr(auth, "get_access_token", lambda email=None: (
         "synthetic-token", auth.Account(email=email or "me@example.invalid")))
 

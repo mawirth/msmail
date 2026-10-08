@@ -9,7 +9,6 @@ import typer
 from msmail.console import console
 from msmail.core import compose
 from msmail.core import drafts
-from msmail.core import graph
 
 
 def _response_from_inputs(
@@ -100,8 +99,6 @@ def reply_message(
     except compose.ComposeCancelled as exc:
         console.print(f"{exc}")
         raise typer.Exit()
-    except (RuntimeError, ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
 
     if json_output:
         console.print_json(json.dumps(asdict(result)))
@@ -157,8 +154,6 @@ def forward_message(
     except compose.ComposeCancelled as exc:
         console.print(f"{exc}")
         raise typer.Exit()
-    except (RuntimeError, ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
 
     if json_output:
         console.print_json(json.dumps(asdict(result)))

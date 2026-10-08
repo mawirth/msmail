@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import tempfile
-from typing import Callable, Optional
+from time import monotonic
+from typing import Callable, Iterator, Optional
 
 import msal
 
 from msmail.core import graph
+from msmail.core.errors import MsmailError
 
 
 STATE_DIR = Path.home() / ".local" / "share" / "msmail"
@@ -72,7 +76,7 @@ def _set_private_mode(path: Path, mode: int) -> None:
 
 def ensure_private_directory(path: Path) -> Path:
     if path.is_symlink():
-        raise RuntimeError(f"Refusing to use symlink as private state directory: {path}")
+        raise MsmailError(f"Refusing to use symlink as private state directory: {path}")
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     current = path
     while True:
@@ -127,7 +131,7 @@ def harden_runtime_state() -> None:
     if not STATE_DIR.exists():
         return
     if STATE_DIR.is_symlink():
-        raise RuntimeError(f"Refusing to use symlink as private state directory: {STATE_DIR}")
+        raise MsmailError(f"Refusing to use symlink as private state directory: {STATE_DIR}")
 
     _set_private_mode(STATE_DIR, 0o700)
     for path in STATE_DIR.rglob("*"):
@@ -161,7 +165,10 @@ def _load_cache(email: str) -> msal.SerializableTokenCache:
     cache = msal.SerializableTokenCache()
     path = _token_cache_path(email)
     if path.exists():
-        cache.deserialize(path.read_text(encoding="utf-8"))
+        try:
+            cache.deserialize(path.read_text(encoding="utf-8"))
+        except (ValueError, OSError) as exc:
+            raise MsmailError(f"Unreadable token cache: {path}. Repair or remove this file, then run auth --login again.") from exc
     return cache
 
 
@@ -180,11 +187,21 @@ def _app(cache: msal.SerializableTokenCache) -> msal.PublicClientApplication:
     )
 
 
+def _read_state_object(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("expected an object")
+        return data
+    except (ValueError, OSError) as exc:
+        raise MsmailError(f"Unreadable account state: {path}. Repair or remove this file, then run auth --login again.") from exc
+
+
 def _active_email() -> str | None:
     _harden_runtime_state_once()
     if not STATE_FILE.exists():
         return None
-    data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    data = _read_state_object(STATE_FILE)
     email = data.get("active_account")
     return email if isinstance(email, str) and email else None
 
@@ -218,7 +235,9 @@ def _load_profile(email: str) -> Account | None:
     path = _profile_path(email)
     if not path.exists():
         return None
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = _read_state_object(path)
+    if not isinstance(data.get("email"), str) or not data["email"].strip():
+        raise MsmailError(f"Invalid account profile: {path}. Repair or remove this file, then run auth --login again.")
     return Account(
         email=data["email"],
         display_name=data.get("display_name"),
@@ -271,7 +290,7 @@ def login(
     app = _app(cache)
     flow = app.initiate_device_flow(scopes=SCOPES)
     if "user_code" not in flow:
-        raise RuntimeError(f"Could not create device flow: {flow}")
+        raise MsmailError(f"Could not create device flow: {flow}")
 
     device_login = DeviceLogin(
         user_code=flow["user_code"],
@@ -284,7 +303,7 @@ def login(
     result = app.acquire_token_by_device_flow(flow)
     if "access_token" not in result:
         error = result.get("error_description") or result.get("error") or "unknown auth error"
-        raise RuntimeError(error)
+        raise MsmailError(error)
 
     me = graph.get_json(
         "/me",
@@ -354,10 +373,36 @@ def whoami() -> Optional[Account]:
     return account
 
 
+_token_session: ContextVar[dict[str, tuple[float, tuple[str, Account]]] | None] = ContextVar("msmail_tokens", default=None)
+
+
+@contextmanager
+def token_session() -> Iterator[None]:
+    """Reuse unexpired credentials only during one CLI invocation."""
+    session = _token_session.set({})
+    try:
+        yield
+    finally:
+        _token_session.reset(session)
+
+
+def resolve_account_email(email: Optional[str] = None) -> str:
+    active = email.strip().lower() if email else active_email()
+    if not active:
+        raise MsmailError("No active account. Run: msmail auth --login <email>")
+    profile = _load_profile(active)
+    return profile.email if profile else active
+
+
 def get_access_token(email: Optional[str] = None) -> tuple[str, Account]:
     active = email.strip().lower() if email else _active_email()
     if not active:
-        raise RuntimeError("No active account. Run: msmail auth --login <email>")
+        raise MsmailError("No active account. Run: msmail auth --login <email>")
+
+    session = _token_session.get()
+    cached = session.get(active) if session is not None else None
+    if cached is not None and cached[0] > monotonic():
+        return cached[1]
 
     cache = _load_cache(active)
     profile = _load_profile(active)
@@ -365,20 +410,24 @@ def get_access_token(email: Optional[str] = None) -> tuple[str, Account]:
         app = _app(cache)
         cached_account = _select_account(app.get_accounts(), active, profile)
         if not cached_account:
-            raise RuntimeError(f"No token cache entry for {active}. Run auth --login again.")
+            raise MsmailError(f"No token cache entry for {active}. Run auth --login again.")
 
         result = app.acquire_token_silent(SCOPES, account=cached_account)
     except RuntimeError:
         raise
     except Exception as exc:
-        raise RuntimeError(f"Could not initialize auth for {active}: {exc}") from exc
+        raise MsmailError(f"Could not initialize auth for {active}: {exc}") from exc
 
     if not result or "access_token" not in result:
-        raise RuntimeError(f"Could not acquire token for {active}. Run auth --login again.")
+        raise MsmailError(f"Could not acquire token for {active}. Run auth --login again.")
 
     _save_cache(active, cache)
     account = profile or Account(email=active, account_key=account_key(active))
-    return result["access_token"], account
+    credentials = (result["access_token"], account)
+    if session is not None:
+        expires = monotonic() + max(0, int(result.get("expires_in", 0)) - 60)
+        session[active] = session[account.email] = (expires, credentials)
+    return credentials
 
 
 def logout() -> bool:

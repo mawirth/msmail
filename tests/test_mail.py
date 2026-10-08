@@ -121,6 +121,7 @@ def test_remove_from_last_list_deletes_matching_message(monkeypatch, tmp_path):
 
 
 def test_resolve_message_references_accepts_ranges_and_deduplicates(monkeypatch, tmp_path):
+    monkeypatch.setattr(mail.auth, "active_email", lambda: "me@example.com")
     monkeypatch.setattr(mail.auth, "account_dir", lambda account: tmp_path / account)
     monkeypatch.setattr(
         mail.auth,
@@ -139,6 +140,7 @@ def test_resolve_message_references_accepts_ranges_and_deduplicates(monkeypatch,
 
 
 def test_resolve_message_reference_items_keeps_original_indexes(monkeypatch, tmp_path):
+    monkeypatch.setattr(mail.auth, "active_email", lambda: "me@example.com")
     monkeypatch.setattr(mail.auth, "account_dir", lambda account: tmp_path / account)
     monkeypatch.setattr(
         mail.auth,
@@ -158,6 +160,7 @@ def test_resolve_message_reference_items_keeps_original_indexes(monkeypatch, tmp
 
 @pytest.mark.parametrize("reference", ["3-1", "1,a", "1-", ",1"])
 def test_resolve_message_references_rejects_invalid_ranges(monkeypatch, tmp_path, reference):
+    monkeypatch.setattr(mail.auth, "active_email", lambda: "me@example.com")
     monkeypatch.setattr(mail.auth, "account_dir", lambda account: tmp_path / account)
     monkeypatch.setattr(
         mail.auth,
@@ -171,6 +174,7 @@ def test_resolve_message_references_rejects_invalid_ranges(monkeypatch, tmp_path
 
 
 def test_delete_message_calls_graph_and_updates_last_list(monkeypatch, tmp_path):
+    monkeypatch.setattr(mail.auth, "active_email", lambda: "me@example.com")
     deleted = {}
     monkeypatch.setattr(mail.auth, "account_dir", lambda account: tmp_path / account)
     monkeypatch.setattr(
@@ -198,6 +202,7 @@ def test_delete_message_calls_graph_and_updates_last_list(monkeypatch, tmp_path)
 
 
 def test_move_message_calls_graph_and_updates_last_list(monkeypatch, tmp_path):
+    monkeypatch.setattr(mail.auth, "active_email", lambda: "me@example.com")
     posted = {}
     monkeypatch.setattr(mail.auth, "account_dir", lambda account: tmp_path / account)
     monkeypatch.setattr(
@@ -230,6 +235,7 @@ def test_move_message_calls_graph_and_updates_last_list(monkeypatch, tmp_path):
 
 
 def test_move_message_can_use_graph_folder_id(monkeypatch, tmp_path):
+    monkeypatch.setattr(mail.auth, "active_email", lambda: "me@example.com")
     posted = {}
     monkeypatch.setattr(mail.auth, "account_dir", lambda account: tmp_path / account)
     monkeypatch.setattr(
@@ -440,6 +446,7 @@ def test_list_folders_returns_folder_metadata(monkeypatch):
 
 
 def test_mark_message_patches_read_state_and_updates_last_list(monkeypatch, tmp_path):
+    monkeypatch.setattr(mail.auth, "active_email", lambda: "me@example.com")
     patched = {}
     monkeypatch.setattr(mail.auth, "account_dir", lambda account: tmp_path / account)
     monkeypatch.setattr(

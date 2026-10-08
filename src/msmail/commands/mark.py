@@ -6,8 +6,8 @@ from typing import Optional
 
 import typer
 
+from msmail.commands.common import run_batch
 from msmail.console import console
-from msmail.core import graph
 from msmail.core import mail
 
 
@@ -28,21 +28,15 @@ def mark_message(
     if read == unread:
         raise typer.BadParameter("Use exactly one of --read or --unread.")
 
-    try:
-        resolved_ids, resolved_account = mail.resolve_message_references(
-            message_id or reference or "",
-            account_email=account,
-        )
-        results = [
-            mail.mark_message(
-                resolved_id,
-                is_read=read,
-                account_email=resolved_account,
-            )
-            for resolved_id in resolved_ids
-        ]
-    except (ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    resolved_ids, resolved_account = mail.resolve_message_references(
+        message_id or reference or "",
+        account_email=account,
+    )
+    results = run_batch(
+        resolved_ids,
+        lambda message_id: mail.mark_message(message_id, is_read=read, account_email=resolved_account),
+        identify=str,
+    )
 
     if json_output:
         payload = []

@@ -4,10 +4,12 @@ import base64
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, time, timezone
 import json
+import logging
 from pathlib import Path
 from typing import Any, Literal, Optional
 
 from msmail.core import auth, graph, mime, smime
+from msmail.core.errors import MsmailError
 
 
 Folder = Literal["inbox", "drafts", "sentitems", "deleteditems", "junkemail"]
@@ -287,18 +289,22 @@ def load_last_list_state(account_email: str) -> MessageList:
     except (json.JSONDecodeError, OSError) as exc:
         raise ValueError("The cached list is unreadable. Run: msmail list") from exc
 
-    # Before paging the file was a bare array of messages.
-    if isinstance(data, list):
-        return MessageList(messages=[_summary_from_cache(item) for item in data])
-    if not isinstance(data, dict):
-        raise ValueError("The cached list is unreadable. Run: msmail list")
+    try:
+        # Before paging the file was a bare array of messages.
+        if isinstance(data, list):
+            return MessageList(messages=[_summary_from_cache(item) for item in data])
+        if not isinstance(data, dict):
+            raise ValueError("The cached list is unreadable. Run: msmail list")
 
-    return MessageList(
-        messages=[_summary_from_cache(item) for item in data.get("messages") or []],
-        next_link=data.get("next_link") or None,
-        offset=int(data.get("offset") or 0),
-        source=data.get("source") or "list",
-    )
+        return MessageList(
+            messages=[_summary_from_cache(item) for item in data.get("messages") or []],
+            next_link=data.get("next_link") or None,
+            offset=int(data.get("offset") or 0),
+            source=data.get("source") or "list",
+        )
+
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError("The cached list is unreadable. Run: msmail list") from exc
 
 
 def load_last_list(account_email: str) -> list[MessageSummary]:
@@ -339,18 +345,17 @@ def update_last_list_read_state(account_email: str, message_id: str, is_read: bo
 
 
 def resolve_message_reference(reference: str, account_email: Optional[str] = None) -> tuple[str, str]:
-    access_token, account = auth.get_access_token(account_email)
-    del access_token
+    resolved_email = auth.resolve_account_email(account_email)
 
     if reference.isdigit():
         index = int(reference)
-        messages = load_last_list(account.email)
+        messages = load_last_list(resolved_email)
         for message in messages:
             if message.index == index:
-                return message.id, account.email
+                return message.id, resolved_email
         raise ValueError(f"No message #{index} in last list.")
 
-    return reference, account.email
+    return reference, resolved_email
 
 
 def resolve_message_references(reference: str, account_email: Optional[str] = None) -> tuple[list[str], str]:
@@ -359,8 +364,7 @@ def resolve_message_references(reference: str, account_email: Optional[str] = No
 
 
 def resolve_message_reference_items(reference: str, account_email: Optional[str] = None) -> tuple[list[MessageSummary], str]:
-    access_token, account = auth.get_access_token(account_email)
-    del access_token
+    resolved_email = auth.resolve_account_email(account_email)
 
     if not reference.strip():
         raise ValueError("Message reference is empty.")
@@ -368,13 +372,13 @@ def resolve_message_reference_items(reference: str, account_email: Optional[str]
     if not any(character in reference for character in ",-"):
         if reference.isdigit():
             index = int(reference)
-            for message in load_last_list(account.email):
+            for message in load_last_list(resolved_email):
                 if message.index == index:
-                    return [message], account.email
+                    return [message], resolved_email
             raise ValueError(f"No message #{index} in last list.")
         return [
             MessageSummary(
-                account=account.email,
+                account=resolved_email,
                 index=0,
                 id=reference,
                 subject="",
@@ -389,9 +393,9 @@ def resolve_message_reference_items(reference: str, account_email: Optional[str]
                 inference_classification=None,
                 body_preview="",
             )
-        ], account.email
+        ], resolved_email
 
-    messages = load_last_list(account.email)
+    messages = load_last_list(resolved_email)
     by_index = {message.index: message for message in messages}
     resolved = []
     seen = set()
@@ -422,7 +426,7 @@ def resolve_message_reference_items(reference: str, account_email: Optional[str]
                 resolved.append(message)
                 seen.add(message.id)
 
-    return resolved, account.email
+    return resolved, resolved_email
 
 
 def _quote_odata_string(value: str) -> str:
@@ -852,17 +856,33 @@ def _operation_summary(message: MessageDetail, destination_folder: Optional[str]
     )
 
 
-def delete_message(reference: str, account_email: Optional[str] = None) -> MessageOperationResult:
+def _maintain_last_list(update, *args) -> None:
+    try:
+        update(*args)
+    except (OSError, ValueError, MsmailError) as exc:
+        logging.getLogger(__name__).warning(
+            "Mail operation succeeded, but the local list cache could not be updated: %s. "
+            "Run msmail list to refresh it.", exc,
+        )
+
+
+def _operation_message(
+    reference: str, account_email: Optional[str], message: Optional[MessageDetail],
+) -> MessageDetail:
     message_id, resolved_account = resolve_message_reference(reference, account_email)
-    message = get_message(
-        message_id,
-        account_email=resolved_account,
-        include_attachment_details=False,
-    )
-    access_token, account = auth.get_access_token(resolved_account)
+    if message is not None:
+        if message.id != message_id or message.account != resolved_account:
+            raise ValueError("Message preview does not match the selected message/account.")
+        return message
+    return get_message(message_id, account_email=resolved_account, include_attachment_details=False)
+
+
+def delete_message(reference: str, account_email: Optional[str] = None, *, message: Optional[MessageDetail] = None) -> MessageOperationResult:
+    message = _operation_message(reference, account_email, message)
+    access_token, account = auth.get_access_token(message.account)
     message_path_id = graph.quote_path_segment(message.id)
     graph.delete_empty(f"/me/messages/{message_path_id}", access_token)
-    remove_from_last_list(account.email, message.id)
+    _maintain_last_list(remove_from_last_list, account.email, message.id)
     return _operation_summary(message)
 
 
@@ -871,15 +891,12 @@ def move_message(
     destination_folder: str,
     destination_folder_id: Optional[str] = None,
     account_email: Optional[str] = None,
+    *,
+    message: Optional[MessageDetail] = None,
 ) -> MessageOperationResult:
     folder_id = destination_folder_id or normalize_folder(destination_folder)
-    message_id, resolved_account = resolve_message_reference(reference, account_email)
-    message = get_message(
-        message_id,
-        account_email=resolved_account,
-        include_attachment_details=False,
-    )
-    access_token, account = auth.get_access_token(resolved_account)
+    message = _operation_message(reference, account_email, message)
+    access_token, account = auth.get_access_token(message.account)
     message_path_id = graph.quote_path_segment(message.id)
     response = graph.post_json(
         f"/me/messages/{message_path_id}/move",
@@ -887,7 +904,7 @@ def move_message(
         body={"destinationId": folder_id},
     )
     moved_id = response.get("id") or message.id
-    remove_from_last_list(account.email, message.id)
+    _maintain_last_list(remove_from_last_list, account.email, message.id)
     return MessageOperationResult(
         account=message.account,
         id=moved_id,
@@ -916,7 +933,7 @@ def mark_message(
         access_token,
         body={"isRead": is_read},
     )
-    update_last_list_read_state(account.email, message.id, is_read)
+    _maintain_last_list(update_last_list_read_state, account.email, message.id, is_read)
     return _operation_summary(message)
 
 

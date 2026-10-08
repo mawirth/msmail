@@ -7,12 +7,12 @@ from typing import Optional
 import typer
 from rich.prompt import Confirm
 
+from msmail.commands.common import run_batch
 from msmail.console import console
-from msmail.core import graph
 from msmail.core import mail
 
 
-def _print_summary(result: mail.MessageOperationResult) -> None:
+def _print_summary(result: mail.MessageDetail) -> None:
     console.print(f"From: {result.from_address}", markup=False)
     console.print(f"Subject: {result.subject}", markup=False)
 
@@ -39,36 +39,25 @@ def delete_message(
     if json_output and not yes:
         raise typer.BadParameter("--json requires --yes for delete.")
 
-    try:
-        items, resolved_account = mail.resolve_message_reference_items(
-            message_id or reference or "",
-            account_email=account,
+    items, resolved_account = mail.resolve_message_reference_items(
+        message_id or reference or "",
+        account_email=account,
+    )
+    # The preview only shows sender and subject; loading attachment details
+    # would download every attachment body just to print two lines.
+    previews = [
+        mail.get_message(
+            item.id,
+            account_email=resolved_account,
+            include_attachment_details=False,
         )
-        resolved_ids = [item.id for item in items]
-        # The preview only shows sender and subject; loading attachment details
-        # would download every attachment body just to print two lines.
-        previews = [
-            mail.get_message(
-                resolved_id,
-                account_email=resolved_account,
-                include_attachment_details=False,
-            )
-            for resolved_id in resolved_ids
-        ]
-    except (ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+        for item in items
+    ]
 
     if not json_output:
         if len(previews) == 1:
             console.print("[bold]Message ready to delete[/bold]")
-            _print_summary(
-                mail.MessageOperationResult(
-                    account=previews[0].account,
-                    id=previews[0].id,
-                    subject=previews[0].subject,
-                    from_address=previews[0].from_address,
-                )
-            )
+            _print_summary(previews[0])
         else:
             console.print(f"[bold]{len(previews)} messages ready to delete[/bold]")
             _print_batch_summary(items, previews)
@@ -78,10 +67,11 @@ def delete_message(
         console.print("Delete cancelled.")
         raise typer.Exit()
 
-    try:
-        results = [mail.delete_message(resolved_id, account_email=resolved_account) for resolved_id in resolved_ids]
-    except (ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    results = run_batch(
+        previews,
+        lambda message: mail.delete_message(message.id, account_email=resolved_account, message=message),
+        identify=lambda message: message.id,
+    )
 
     if json_output:
         payload = [asdict(result) for result in results]

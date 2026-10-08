@@ -420,6 +420,14 @@ MSMAIL_CLIENT_ID=<client-id> msmail auth --login you@example.com
 **"No last list found"** means there is no cached numbering yet. Run `msmail
 list` or `msmail search`, then use the numbers from it.
 
+**A mail operation succeeded but its list cache could not be updated.** The
+mailbox change has already completed. Run `msmail list` to refresh local
+numbering. Do not repeat the operation just to repair the cache.
+
+Batch commands stop at the first failure and report completed message IDs.
+Operational errors use exit status 1 and diagnostics on stderr; argument usage
+errors use status 2. Successful `--json` output retains its existing format.
+
 **A signature does not verify** although the mail looks fine. The issuing CA is
 probably not in your system store; add it to `trusted-ca.pem` in the account's
 `smime/` directory.

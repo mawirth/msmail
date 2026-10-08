@@ -29,6 +29,8 @@ def _decode_part(part: Message) -> str:
 
 
 def _find_body_part(message: Message, preferred_type: str) -> Message | None:
+    if message.get_content_disposition() == "attachment":
+        return None
     if message.get_content_type().lower() == "multipart/signed":
         payload = message.get_payload()
         if isinstance(payload, list) and payload:
@@ -52,10 +54,6 @@ def _find_body_part(message: Message, preferred_type: str) -> Message | None:
     content_type = message.get_content_type().lower()
     if content_type == preferred_type:
         return message
-    if preferred_type == "text/plain" and content_type == "text/html":
-        return message
-    if preferred_type == "text/html" and content_type == "text/plain":
-        return message
     return None
 
 
@@ -65,7 +63,10 @@ def parse_message(mime_bytes: bytes) -> Message:
 
 def body_from_mime(mime_bytes: bytes, raw_html: bool) -> tuple[str, str, list[str]]:
     parsed = parse_message(mime_bytes)
-    body_part = _find_body_part(parsed, "text/html" if raw_html else "text/plain")
+    preferred, fallback = ("text/html", "text/plain") if raw_html else ("text/plain", "text/html")
+    body_part = _find_body_part(parsed, preferred)
+    if body_part is None:
+        body_part = _find_body_part(parsed, fallback)
     if body_part is None:
         return "", "text", attachment_names(parsed)
 

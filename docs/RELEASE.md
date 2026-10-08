@@ -1,11 +1,11 @@
 # Release Checklist
 
-This project is close to a public `0.1.0` pre-release, but a few publication
-steps should be explicit.
+The repository is public at [github.com/mawirth/msmail](https://github.com/mawirth/msmail).
+Use this checklist when preparing subsequent releases.
 
-## Before Publishing on GitHub
+## Before a Release
 
-- Confirm the MIT license in `LICENSE` is intended for the public release.
+- Keep the MIT license in `LICENSE` and package metadata consistent.
 - Review the full tree for private data:
 
   ```sh
@@ -42,12 +42,11 @@ Current version:
 0.1.0
 ```
 
-## Suggested Git Tags
+## Git Tags
 
-```sh
-git tag -a v0.1.0 -m "msmail 0.1.0"
-git push origin v0.1.0
-```
+Choose the next version, update package metadata and the changelog, then create
+an annotated tag for that version. Check existing tags first; do not move an
+already published release tag.
 
 ## Known Limitations for 0.1.0
 
@@ -62,10 +61,8 @@ git push origin v0.1.0
 ## Changelog Template
 
 ```markdown
-## 0.1.0 - YYYY-MM-DD
+## X.Y.Z - YYYY-MM-DD
 
-- Initial public release.
-- Microsoft Graph auth, list, read, search, folders.
-- Draft-first create/edit/send/delete.
-- Attachments and S/MIME sign/encrypt/decrypt/verify.
+- User-visible fixes and changes.
+- Any command-line or JSON compatibility changes.
 ```

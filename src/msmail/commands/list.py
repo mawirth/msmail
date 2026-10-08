@@ -11,7 +11,6 @@ from rich.table import Table
 from rich.text import Text
 
 from msmail.console import console
-from msmail.core import graph
 from msmail.core import mail
 
 
@@ -172,13 +171,10 @@ def list_messages(
                 f"--more continues the previous listing and cannot be combined with "
                 f"{', '.join(conflicting)}."
             )
-        try:
-            state = mail.list_more(
-                account_email=account,
-                include_attachment_details=attachment_details,
-            )
-        except (ValueError, graph.GraphError) as exc:
-            raise typer.BadParameter(str(exc)) from exc
+        state = mail.list_more(
+            account_email=account,
+            include_attachment_details=attachment_details,
+        )
     else:
         inbox_class: mail.InboxClass = "focused"
         folder_id = mail.normalize_folder(folder or "inbox")
@@ -189,19 +185,16 @@ def list_messages(
         elif folder_id != "inbox":
             inbox_class = "all"
 
-        try:
-            state = mail.list_messages(
-                folder=folder or "inbox",
-                inbox_class=inbox_class,
-                fetch=resolve_fetch(fetch),
-                account_email=account,
-                from_address=from_address,
-                after=after,
-                before=before,
-                include_attachment_details=attachment_details,
-            )
-        except (ValueError, graph.GraphError) as exc:
-            raise typer.BadParameter(str(exc)) from exc
+        state = mail.list_messages(
+            folder=folder or "inbox",
+            inbox_class=inbox_class,
+            fetch=resolve_fetch(fetch),
+            account_email=account,
+            from_address=from_address,
+            after=after,
+            before=before,
+            include_attachment_details=attachment_details,
+        )
 
     if json_output:
         console.print_json(json.dumps([asdict(message) for message in state.messages]))

@@ -560,7 +560,7 @@ def test_delete_preview_does_not_download_attachments(monkeypatch):
     monkeypatch.setattr(
         mail,
         "delete_message",
-        lambda reference, account_email=None: mail.MessageOperationResult(
+        lambda reference, account_email=None, message=None: mail.MessageOperationResult(
             account="me@example.com",
             id=reference,
             subject="Status",
@@ -590,7 +590,7 @@ def test_move_preview_does_not_download_attachments(monkeypatch):
     monkeypatch.setattr(
         mail,
         "move_message",
-        lambda reference, destination_folder, destination_folder_id=None, account_email=None: mail.MessageOperationResult(
+        lambda reference, destination_folder, destination_folder_id=None, account_email=None, message=None: mail.MessageOperationResult(
             account="me@example.com",
             id=reference,
             subject="Status",

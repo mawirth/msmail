@@ -7,8 +7,8 @@ from typing import Optional
 import typer
 from rich.prompt import Confirm
 
+from msmail.commands.common import run_batch
 from msmail.console import console
-from msmail.core import graph
 from msmail.core import mail
 
 
@@ -32,25 +32,21 @@ def move_message(
     if json_output and not yes:
         raise typer.BadParameter("--json requires --yes for move.")
 
-    try:
-        normalized_folder = folder_id or mail.normalize_folder(folder or "")
-        items, resolved_account = mail.resolve_message_reference_items(
-            message_id or reference or "",
-            account_email=account,
+    normalized_folder = folder_id or mail.normalize_folder(folder or "")
+    items, resolved_account = mail.resolve_message_reference_items(
+        message_id or reference or "",
+        account_email=account,
+    )
+    # The preview only shows sender and subject; loading attachment details
+    # would download every attachment body just to print two lines.
+    previews = [
+        mail.get_message(
+            item.id,
+            account_email=resolved_account,
+            include_attachment_details=False,
         )
-        resolved_ids = [item.id for item in items]
-        # The preview only shows sender and subject; loading attachment details
-        # would download every attachment body just to print two lines.
-        previews = [
-            mail.get_message(
-                resolved_id,
-                account_email=resolved_account,
-                include_attachment_details=False,
-            )
-            for resolved_id in resolved_ids
-        ]
-    except (ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+        for item in items
+    ]
 
     if not json_output:
         if len(previews) == 1:
@@ -69,18 +65,17 @@ def move_message(
         console.print("Move cancelled.")
         raise typer.Exit()
 
-    try:
-        results = [
-            mail.move_message(
-                resolved_id,
-                destination_folder=folder or "",
-                destination_folder_id=folder_id,
-                account_email=resolved_account,
-            )
-            for resolved_id in resolved_ids
-        ]
-    except (ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    results = run_batch(
+        previews,
+        lambda message: mail.move_message(
+            message.id,
+            destination_folder=folder or "",
+            destination_folder_id=folder_id,
+            account_email=resolved_account,
+            message=message,
+        ),
+        identify=lambda message: message.id,
+    )
 
     if json_output:
         payload = [asdict(result) for result in results]

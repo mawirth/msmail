@@ -132,3 +132,61 @@ def test_a_different_state_directory_is_hardened_again(monkeypatch, tmp_path):
         auth._harden_runtime_state_once()
 
     assert walks == [str(tmp_path / "first"), str(tmp_path / "second")]
+
+
+def test_token_reuse_is_scoped_by_account_expiry_and_invocation(monkeypatch):
+    from types import SimpleNamespace
+
+    acquisitions = []
+    now = [100.0]
+    monkeypatch.setattr(auth, 'monotonic', lambda: now[0])
+    monkeypatch.setattr(auth, '_load_profile', lambda email: None)
+    monkeypatch.setattr(auth, '_load_cache', lambda email: email)
+    monkeypatch.setattr(auth, '_save_cache', lambda *args: None)
+
+    def app(email):
+        def acquire(scopes, account):
+            acquisitions.append(email)
+            return {'access_token': email, 'expires_in': 120}
+        return SimpleNamespace(get_accounts=lambda: [{'username': email}], acquire_token_silent=acquire)
+
+    monkeypatch.setattr(auth, '_app', app)
+    with auth.token_session():
+        assert auth.get_access_token('first@example.invalid')[0] == 'first@example.invalid'
+        auth.get_access_token('first@example.invalid')
+        assert auth.get_access_token('second@example.invalid')[0] == 'second@example.invalid'
+        assert len(acquisitions) == 2
+        now[0] += 61
+        auth.get_access_token('first@example.invalid')
+        assert len(acquisitions) == 3
+    with auth.token_session():
+        auth.get_access_token('first@example.invalid')
+    assert len(acquisitions) == 4
+
+
+def test_failed_token_session_does_not_retain_credentials(monkeypatch):
+    import pytest
+
+    with pytest.raises(RuntimeError, match='cancelled'):
+        with auth.token_session():
+            raise RuntimeError('cancelled')
+    assert auth._token_session.get() is None
+
+
+def test_reference_resolution_uses_local_canonical_account_without_auth(monkeypatch):
+    from msmail.core import mail
+
+    auth._save_profile(auth.Account(email='alias@example.invalid', account_key='alias'))
+    path = auth._profile_path('alias@example.invalid')
+    auth.write_private_text(path, '{"email": "canonical@example.invalid"}')
+    monkeypatch.setattr(auth, 'get_access_token', lambda *args: (_ for _ in ()).throw(AssertionError('must not acquire token')))
+    assert mail.resolve_message_reference('messageID', 'alias@example.invalid') == ('messageID', 'canonical@example.invalid')
+
+
+def test_corrupt_auth_state_has_actionable_error():
+    import pytest
+    from msmail.core.errors import MsmailError
+
+    auth.write_private_text(auth.STATE_FILE, '{broken')
+    with pytest.raises(MsmailError, match='account state'):
+        auth.active_email()

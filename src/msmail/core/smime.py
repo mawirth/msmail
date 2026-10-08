@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from email.message import EmailMessage
 from email.policy import SMTP
@@ -7,9 +8,10 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-from typing import Optional
+from typing import Iterator, Optional
 
 from msmail.core import auth
+from msmail.core.errors import MsmailError
 
 
 @dataclass(frozen=True)
@@ -98,12 +100,7 @@ class DecryptResult:
 
 
 def resolve_account_email(account_email: Optional[str] = None) -> str:
-    if account_email:
-        return account_email.strip().lower()
-    active = auth.active_email()
-    if not active:
-        raise RuntimeError("No active account. Run: msmail auth --login <email>")
-    return active
+    return auth.resolve_account_email(account_email)
 
 
 def smime_dir(account_email: str) -> Path:
@@ -133,7 +130,7 @@ def _run_openssl(args: list[str]) -> str:
             text=True,
         )
     except FileNotFoundError as exc:
-        raise RuntimeError("openssl not found in PATH.") from exc
+        raise MsmailError("openssl not found in PATH.") from exc
 
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
@@ -221,6 +218,22 @@ def _working_dir(output_dir: Optional[str], prefix: str) -> tuple[Path, bool]:
         directory.mkdir(parents=True, exist_ok=True)
         return directory, False
     return Path(tempfile.mkdtemp(prefix=prefix)), True
+
+
+@contextmanager
+def _managed_working_dir(
+    output_dir: Optional[str], prefix: str, *, keep_on_success: bool = False,
+) -> Iterator[tuple[Path, bool]]:
+    """Clean owned files on every failure, including partial writes."""
+    directory, owned = _working_dir(output_dir, prefix)
+    try:
+        yield directory, owned
+    except BaseException:
+        _discard(directory, owned)
+        raise
+    else:
+        if not keep_on_success:
+            _discard(directory, owned)
 
 
 def discard_working_dir(directory: str | Path) -> None:
@@ -558,11 +571,10 @@ def sign_mime(
     _account, paths = require_configured(account_email)
     # The caller reads the signed bytes and is responsible for calling
     # discard_working_dir(); unsigned.eml holds outgoing cleartext.
-    directory, owned = _working_dir(output_dir, TEMP_PREFIX)
-    unsigned_path = directory / "unsigned.eml"
-    signed_path = directory / "signed.eml"
-    unsigned_path.write_bytes(mime_bytes)
-    try:
+    with _managed_working_dir(output_dir, TEMP_PREFIX, keep_on_success=True) as (directory, owned):
+        unsigned_path = directory / "unsigned.eml"
+        signed_path = directory / "signed.eml"
+        unsigned_path.write_bytes(mime_bytes)
         _run_openssl_file(
             [
                 "smime",
@@ -581,11 +593,7 @@ def sign_mime(
                 "SMIME",
             ]
         )
-    except BaseException:
-        # The caller never sees the path, so it could not clean up itself.
-        _discard(directory, owned)
-        raise
-    return str(unsigned_path), str(signed_path)
+        return str(unsigned_path), str(signed_path)
 
 
 def encrypt_mime(
@@ -601,11 +609,10 @@ def encrypt_mime(
     certs = recipient_certificates(recipients + [account_email], account_email=account_email)
     # The caller reads the encrypted bytes and is responsible for calling
     # discard_working_dir(); clear.eml holds outgoing cleartext.
-    directory, owned = _working_dir(output_dir, TEMP_PREFIX)
-    clear_path = directory / "clear.eml"
-    encrypted_path = directory / "encrypted.eml"
-    clear_path.write_bytes(mime_bytes)
-    try:
+    with _managed_working_dir(output_dir, TEMP_PREFIX, keep_on_success=True) as (directory, owned):
+        clear_path = directory / "clear.eml"
+        encrypted_path = directory / "encrypted.eml"
+        clear_path.write_bytes(mime_bytes)
         _run_openssl_file(
             [
                 "smime",
@@ -620,11 +627,7 @@ def encrypt_mime(
                 *certs,
             ]
         )
-    except BaseException:
-        # The caller never sees the path, so it could not clean up itself.
-        _discard(directory, owned)
-        raise
-    return str(clear_path), str(encrypted_path)
+        return str(clear_path), str(encrypted_path)
 
 
 def decrypt_mime_bytes(
@@ -634,15 +637,14 @@ def decrypt_mime_bytes(
     output_dir: Optional[str] = None,
 ) -> DecryptResult:
     _account, paths = require_configured(account_email)
-    directory, owned = _working_dir(output_dir, TEMP_PREFIX + "decrypt-")
-    encrypted_path = directory / "encrypted.eml"
-    decrypted_path = directory / "decrypted.eml"
-    # Paths are only reported back when the caller owns the directory; our own
-    # temporary directory is gone by the time this returns.
-    reported_encrypted = "" if owned else str(encrypted_path)
-    reported_decrypted = "" if owned else str(decrypted_path)
-    encrypted_path.write_bytes(mime_bytes)
-    try:
+    with _managed_working_dir(output_dir, TEMP_PREFIX + "decrypt-") as (directory, owned):
+        encrypted_path = directory / "encrypted.eml"
+        decrypted_path = directory / "decrypted.eml"
+        # Paths are only reported back when the caller owns the directory; our own
+        # temporary directory is gone by the time this returns.
+        reported_encrypted = "" if owned else str(encrypted_path)
+        reported_decrypted = "" if owned else str(decrypted_path)
+        encrypted_path.write_bytes(mime_bytes)
         try:
             _run_openssl_file(
                 [
@@ -671,8 +673,6 @@ def decrypt_mime_bytes(
             decrypted_path=reported_decrypted,
             data=decrypted_path.read_bytes(),
         )
-    finally:
-        _discard(directory, owned)
 
 
 def verify_signed_mime(
@@ -708,21 +708,20 @@ def verify_signed_mime_bytes(
     expected_sender: Optional[str] = None,
 ) -> VerifyResult:
     _account, paths = verification_material(account_email)
-    directory, owned = _working_dir(output_dir, TEMP_PREFIX + "verify-")
-    signed_path = directory / "incoming.eml"
-    verified_path = directory / "verified.eml"
-    signer_path = directory / "signer.pem"
-    signed_path.write_bytes(mime_bytes)
-    trust_bundle = _trust_bundle(paths, directory)
-    trust_arguments = ["-CAfile", str(trust_bundle)] if trust_bundle else []
+    with _managed_working_dir(output_dir, TEMP_PREFIX + "verify-") as (directory, owned):
+        signed_path = directory / "incoming.eml"
+        verified_path = directory / "verified.eml"
+        signer_path = directory / "signer.pem"
+        signed_path.write_bytes(mime_bytes)
+        trust_bundle = _trust_bundle(paths, directory)
+        trust_arguments = ["-CAfile", str(trust_bundle)] if trust_bundle else []
 
-    def reported_signer() -> str | None:
-        if owned or not signer_path.exists():
-            return None
-        return str(signer_path)
+        def reported_signer() -> str | None:
+            if owned or not signer_path.exists():
+                return None
+            return str(signer_path)
 
-    reported_verified = "" if owned else str(verified_path)
-    try:
+        reported_verified = "" if owned else str(verified_path)
         try:
             _run_openssl_file(
                 [
@@ -768,8 +767,6 @@ def verify_signed_mime_bytes(
             sender_matches=sender_matches,
             error=sender_error,
         )
-    finally:
-        _discard(directory, owned)
 
 
 def local_sign_verify_smoke(

@@ -7,6 +7,9 @@ from typing import Any, Mapping, Optional
 from urllib import error, parse, request
 
 
+from msmail.core.errors import MsmailError
+
+
 GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
 
 DEFAULT_TIMEOUT = 30
@@ -24,7 +27,7 @@ MAX_ATTEMPTS = 3
 MAX_RETRY_DELAY_SECONDS = 30.0
 
 
-class GraphError(RuntimeError):
+class GraphError(MsmailError):
     pass
 
 

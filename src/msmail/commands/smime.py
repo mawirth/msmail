@@ -27,16 +27,13 @@ def setup(
     account: Optional[str] = typer.Option(None, "--account", help="Mail account email address."),
     json_output: bool = typer.Option(False, "--json", help="Print JSON output."),
 ) -> None:
-    try:
-        result = smime_core.setup(
-            cert=cert,
-            key=key,
-            ca_bundle=ca_bundle,
-            fullchain=fullchain,
-            account_email=account,
-        )
-    except (RuntimeError, ValueError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    result = smime_core.setup(
+        cert=cert,
+        key=key,
+        ca_bundle=ca_bundle,
+        fullchain=fullchain,
+        account_email=account,
+    )
 
     if json_output:
         console.print_json(json.dumps(asdict(result)))
@@ -54,10 +51,7 @@ def status(
     account: Optional[str] = typer.Option(None, "--account", help="Mail account email address."),
     json_output: bool = typer.Option(False, "--json", help="Print JSON output."),
 ) -> None:
-    try:
-        result = smime_core.status(account_email=account)
-    except (RuntimeError, ValueError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    result = smime_core.status(account_email=account)
 
     if json_output:
         console.print_json(json.dumps(asdict(result)))
@@ -85,14 +79,11 @@ def import_recipient(
     account: Optional[str] = typer.Option(None, "--account", help="Mail account email address."),
     json_output: bool = typer.Option(False, "--json", help="Print JSON output."),
 ) -> None:
-    try:
-        result = smime_core.import_recipient_certificate(
-            cert=cert,
-            email=email,
-            account_email=account,
-        )
-    except (RuntimeError, ValueError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    result = smime_core.import_recipient_certificate(
+        cert=cert,
+        email=email,
+        account_email=account,
+    )
 
     if json_output:
         console.print_json(json.dumps(asdict(result)))
@@ -110,13 +101,10 @@ def test_sign(
     output_dir: Optional[str] = typer.Option(None, "--output-dir", help="Directory for unsigned/signed/verified test files."),
     json_output: bool = typer.Option(False, "--json", help="Print JSON output."),
 ) -> None:
-    try:
-        result = smime_core.local_sign_verify_smoke(
-            account_email=account,
-            output_dir=output_dir,
-        )
-    except (RuntimeError, ValueError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    result = smime_core.local_sign_verify_smoke(
+        account_email=account,
+        output_dir=output_dir,
+    )
 
     if json_output:
         console.print_json(json.dumps(asdict(result)))

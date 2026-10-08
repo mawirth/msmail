@@ -8,7 +8,6 @@ import typer
 from rich.text import Text
 
 from msmail.console import console
-from msmail.core import graph
 from msmail.core import mail
 from msmail.core import mime
 from msmail.core import render
@@ -135,68 +134,65 @@ def read_message(
     if bool(reference) == bool(message_id):
         raise typer.BadParameter("Use either INDEX_OR_ID or --id.")
 
-    try:
-        resolved_id, resolved_account = mail.resolve_message_reference(
-            message_id or reference or "",
-            account_email=account,
-        )
-        message = mail.get_message(
+    resolved_id, resolved_account = mail.resolve_message_reference(
+        message_id or reference or "",
+        account_email=account,
+    )
+    message = mail.get_message(
+        resolved_id,
+        account_email=resolved_account,
+        include_attachment_details=attachment_details or verify_smime or decrypt_smime,
+    )
+    smime_result = None
+    decrypt_result = None
+    decrypted_body = None
+    decrypted_body_type = None
+    decrypted_attachments = None
+    mime_body = None
+    mime_body_type = None
+    mime_attachments = None
+    should_read_signed_mime = message.smime_signed and not message.smime_encrypted
+    if verify_smime or decrypt_smime or should_read_signed_mime:
+        mime_bytes, mime_account = mail.get_message_mime(
             resolved_id,
             account_email=resolved_account,
-            include_attachment_details=attachment_details or verify_smime or decrypt_smime,
         )
-        smime_result = None
-        decrypt_result = None
-        decrypted_body = None
-        decrypted_body_type = None
-        decrypted_attachments = None
-        mime_body = None
-        mime_body_type = None
-        mime_attachments = None
-        should_read_signed_mime = message.smime_signed and not message.smime_encrypted
-        if verify_smime or decrypt_smime or should_read_signed_mime:
-            mime_bytes, mime_account = mail.get_message_mime(
-                resolved_id,
-                account_email=resolved_account,
-            )
-        if decrypt_smime:
-            decrypt_result = smime.decrypt_mime_bytes(
-                mime_bytes,
-                account_email=mime_account,
-            )
-            if decrypt_result.decrypted:
-                decrypted_bytes = decrypt_result.data or b""
-                body_source = decrypted_bytes
-                if verify_smime:
-                    smime_result = smime.verify_signed_mime_bytes(
-                        decrypted_bytes,
-                        account_email=mime_account,
-                        expected_sender=message.from_address,
-                    )
-                    if smime_result.verified:
-                        body_source = smime_result.data or body_source
-                decrypted_body, decrypted_body_type, decrypted_attachments = mime.body_from_mime(
-                    body_source,
-                    raw_html,
+    if decrypt_smime:
+        decrypt_result = smime.decrypt_mime_bytes(
+            mime_bytes,
+            account_email=mime_account,
+        )
+        if decrypt_result.decrypted:
+            decrypted_bytes = decrypt_result.data or b""
+            body_source = decrypted_bytes
+            if verify_smime:
+                smime_result = smime.verify_signed_mime_bytes(
+                    decrypted_bytes,
+                    account_email=mime_account,
+                    expected_sender=message.from_address,
                 )
-        elif verify_smime:
-            smime_result = smime.verify_signed_mime_bytes(
-                mime_bytes,
-                account_email=mime_account,
-                expected_sender=message.from_address,
-            )
-            body_source = (smime_result.data or mime_bytes) if smime_result.verified else mime_bytes
-            mime_body, mime_body_type, mime_attachments = mime.body_from_mime(
+                if smime_result.verified:
+                    body_source = smime_result.data or body_source
+            decrypted_body, decrypted_body_type, decrypted_attachments = mime.body_from_mime(
                 body_source,
                 raw_html,
             )
-        elif should_read_signed_mime:
-            mime_body, mime_body_type, mime_attachments = mime.body_from_mime(
-                mime_bytes,
-                raw_html,
-            )
-    except (RuntimeError, ValueError, graph.GraphError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
+    elif verify_smime:
+        smime_result = smime.verify_signed_mime_bytes(
+            mime_bytes,
+            account_email=mime_account,
+            expected_sender=message.from_address,
+        )
+        body_source = (smime_result.data or mime_bytes) if smime_result.verified else mime_bytes
+        mime_body, mime_body_type, mime_attachments = mime.body_from_mime(
+            body_source,
+            raw_html,
+        )
+    elif should_read_signed_mime:
+        mime_body, mime_body_type, mime_attachments = mime.body_from_mime(
+            mime_bytes,
+            raw_html,
+        )
 
     if json_output:
         data = asdict(message)
