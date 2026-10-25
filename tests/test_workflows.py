@@ -159,3 +159,67 @@ def test_cache_write_failure_after_delete_is_only_a_warning(mailbox, monkeypatch
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)['id'] == 'messageID'
     assert 'disk full' in caplog.text
+
+
+@pytest.mark.parametrize('message_id', ['AAMk-with-hyphen', '123', '1-3'])
+@pytest.mark.parametrize('command', [
+    ['delete', '--yes'], ['move', '--folder', 'deleted', '--yes'],
+    ['mark', '--read'], ['read'], ['draft', 'send', '--yes'],
+    ['draft', 'delete', '--yes'],
+])
+def test_explicit_ids_are_never_interpreted_as_ranges(mailbox, command, message_id):
+    # There deliberately is no last-list.json to resolve indexes against.
+    result = runner.invoke(app, [*command, '--id', message_id])
+    assert result.exit_code == 0, result.output
+    assert any(path == f'/v1.0/me/messages/{message_id}' for _, path in mailbox.requests)
+
+
+@pytest.mark.parametrize('failure', ['auth', 'graph', None])
+@pytest.mark.parametrize('command', [
+    ['draft', 'create'], ['draft', 'edit', '--id', 'messageID'],
+    ['reply', '--id', 'messageID'], ['forward', '--id', 'messageID', '--to', 'to@example.invalid'],
+])
+def test_editor_text_survives_until_server_save(monkeypatch, tmp_path, caplog, command, failure):
+    from pathlib import Path
+    from msmail.core import drafts
+    from msmail.core.errors import MsmailError
+
+    account = auth.Account(email='me@example.invalid')
+    auth._set_active(account.email)
+    monkeypatch.setattr(compose.tempfile, 'tempdir', str(tmp_path))
+    files = []
+    content = compose.compose_template(to='to@example.invalid', subject='Recovery', body='Keep my typed text.')
+
+    def edit(args, **kwargs):
+        path = Path(args[-1])
+        files.append(path)
+        path.write_text(content)
+        return SimpleNamespace(returncode=0)
+
+    def token(*args, **kwargs):
+        if failure == 'auth':
+            raise MsmailError('synthetic login expired')
+        return 'synthetic', account
+
+    def save(*args, **kwargs):
+        assert files[0].read_text() == content  # Still recoverable during the request.
+        if failure == 'graph':
+            raise graph.GraphError('synthetic network failure')
+        return {'id': 'draftID'}
+
+    info = drafts.DraftInfo(account.email, 'messageID', 'Before', account.email, ['to@example.invalid'], [], [], False, True)
+    monkeypatch.setattr(drafts, 'compose_template_for_draft', lambda *a, **kw: ('original', info, 'Text'))
+    monkeypatch.setattr(compose.subprocess, 'run', edit)
+    monkeypatch.setattr(auth, 'get_access_token', token)
+    monkeypatch.setattr(graph, 'post_json', save)
+    monkeypatch.setattr(graph, 'patch_json', save)
+    result = runner.invoke(app, [*command, '--json'])
+    assert len(files) == 1
+    if failure:
+        assert result.exit_code == 1, result.output
+        assert files[0].read_text() == content
+        assert str(files[0]) in caplog.text
+        assert 'Compose file kept' in caplog.text
+    else:
+        assert result.exit_code == 0, result.output
+        assert not files[0].exists()

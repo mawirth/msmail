@@ -1,6 +1,6 @@
 # Open Items
 
-Remaining findings from the reviews, updated on 2026-10-08, plus decisions
+Remaining findings from the reviews, updated on 2026-10-25, plus decisions
 worth not re-litigating. Items are roughly ordered by value within each group.
 
 ## Correctness
@@ -39,6 +39,11 @@ operation with no preview. Documented in the README.
   not introduce workflows or additional tooling dependencies.
 
 ## Decided, not open
+
+- **October 25 follow-up:** editor buffers survive failed server operations;
+  explicit IDs bypass range parsing. Attachment listing/saving follows all
+  pages, and Graph/MIME output shares empty-file and inline rules. Upload
+  chunks specify their required binary content type.
 
 - **October 2026 cleanup:** local reference resolution no longer acquires a
   token. CLI invocations reuse unexpired credentials and delete/move reuse

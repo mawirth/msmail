@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
 import json
+import logging
 from pathlib import Path
 import os
 import subprocess
 import tempfile
+from typing import Iterator
 
 
 SEPARATOR = "---"
@@ -26,6 +29,7 @@ class ComposeDraft:
     attachments: list[str]
     sign: bool
     encrypt: bool
+    recovery_file: Path | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -35,6 +39,27 @@ class ResponseDraft:
     bcc: list[str]
     body: str
     body_content_type: str
+    recovery_file: Path | None = field(default=None, repr=False, compare=False)
+
+
+@contextmanager
+def pending_edit(draft: ComposeDraft | ResponseDraft) -> Iterator[None]:
+    """Retain editor input until the server operation has succeeded."""
+    path = draft.recovery_file
+    try:
+        yield
+    except BaseException:
+        if path is not None:
+            logging.getLogger(__name__).warning("Compose file kept at %s", path)
+        raise
+    else:
+        if path is not None:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                logging.getLogger(__name__).warning(
+                    "Draft saved, but compose file could not be removed: %s (%s)", path, exc,
+                )
 
 
 def parse_addresses(value: str) -> list[str]:
@@ -222,7 +247,7 @@ def _edit_in_editor(template: str, *, prefix: str, parse):
 
     Returns None when the file came back unchanged; the callers decide whether
     that counts as a cancelled compose or as "nothing to update". The temporary
-    file is kept on a parse error so the typed text is not lost.
+    file is retained for pending_edit() to remove after successful storage.
     """
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -235,21 +260,20 @@ def _edit_in_editor(template: str, *, prefix: str, parse):
         path = handle.name
 
     try:
-        result = subprocess.run(editor_command() + [path], check=False)
+        try:
+            result = subprocess.run(editor_command() + [path], check=False)
+        except FileNotFoundError as exc:
+            raise ValueError(f"Editor not found: {editor_command()[0]}") from exc
         if result.returncode != 0:
-            raise ValueError(f"Editor exited with status {result.returncode}. Compose file kept at {path}")
+            raise ValueError(f"Editor exited with status {result.returncode}.")
         content = Path(path).read_text(encoding="utf-8")
         if content == template:
             Path(path).unlink(missing_ok=True)
             return None
-        try:
-            draft = parse(content)
-        except ValueError as exc:
-            raise ValueError(f"{exc} Compose file kept at {path}") from exc
-        Path(path).unlink(missing_ok=True)
-        return draft
-    except FileNotFoundError as exc:
-        raise ValueError(f"Editor not found: {editor_command()[0]}") from exc
+        return replace(parse(content), recovery_file=Path(path))
+    except BaseException:
+        logging.getLogger(__name__).warning("Compose file kept at %s", path)
+        raise
 
 
 def response_interactively(

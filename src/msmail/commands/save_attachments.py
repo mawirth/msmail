@@ -29,7 +29,7 @@ def save_attachments(
         raise typer.BadParameter("Use either INDEX_OR_ID or --id.")
 
     result = mail.save_attachments(
-        message_id or reference or "",
+        mail.MessageId(message_id) if message_id is not None else reference or "",
         destination=destination,
         overwrite=overwrite,
         include_inline=include_inline,

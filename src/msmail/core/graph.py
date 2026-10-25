@@ -175,7 +175,11 @@ def put_bytes(
     # Upload-session URLs carry their own credentials; sending the Graph bearer
     # token alongside them is rejected.
     return _json_response(
-        _request("PUT", url, data=data, headers=headers, timeout=UPLOAD_TIMEOUT),
+        _request(
+            "PUT", url, data=data,
+            headers={"Content-Type": "application/octet-stream", **(headers or {})},
+            timeout=UPLOAD_TIMEOUT,
+        ),
         allow_empty=True,
     )
 

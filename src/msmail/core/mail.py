@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, time, timezone
 import json
@@ -8,7 +7,9 @@ import logging
 from pathlib import Path
 from typing import Any, Literal, Optional
 
+from msmail.core import attachments as attachment_files
 from msmail.core import auth, graph, mime, smime
+from msmail.core.attachments import SavedAttachment
 from msmail.core.errors import MsmailError
 
 
@@ -25,6 +26,10 @@ FOLDERS: dict[str, Folder] = {
     "junk": "junkemail",
     "junkemail": "junkemail",
 }
+
+
+class MessageId(str):
+    """An opaque Graph ID, never a local index or range."""
 
 
 @dataclass(frozen=True)
@@ -119,13 +124,6 @@ class FolderInfo:
 
 
 @dataclass(frozen=True)
-class SavedAttachment:
-    name: str
-    path: str
-    size: int
-
-
-@dataclass(frozen=True)
 class SaveAttachmentsResult:
     account: str
     id: str
@@ -166,33 +164,6 @@ def normalize_folder(folder: str) -> Folder:
     except KeyError as exc:
         allowed = ", ".join(sorted(FOLDERS))
         raise ValueError(f"Unknown folder '{folder}'. Allowed: {allowed}") from exc
-
-
-def _is_smime_signature_attachment(name: str, content_type: str) -> bool:
-    normalized_name = name.lower()
-    normalized_type = content_type.lower()
-    if (
-        "pkcs7-signature" in normalized_type
-        or normalized_type == "multipart/signed"
-        # An opaque signature: application/pkcs7-mime; smime-type=signed-data.
-        or "signed-data" in normalized_type
-    ):
-        return True
-    # smime.p7m is deliberately not matched by name. It carries either
-    # encrypted data or an opaque signature, and only the content type tells
-    # the two apart; matching it here marked every encrypted message as signed.
-    return normalized_name == "smime.p7s"
-
-
-def _is_smime_encrypted_attachment(name: str, content_type: str) -> bool:
-    normalized_name = name.lower()
-    normalized_type = content_type.lower()
-    if "signed" in normalized_type:
-        # multipart/signed and smime-type=signed-data are not encrypted.
-        return False
-    if "pkcs7-mime" in normalized_type:
-        return True
-    return normalized_name in {"smime.p7m", "smime.p7c"}
 
 
 def _attachment_flags(attachments: list[AttachmentInfo]) -> tuple[bool, bool, bool]:
@@ -347,20 +318,20 @@ def update_last_list_read_state(account_email: str, message_id: str, is_read: bo
 def resolve_message_reference(reference: str, account_email: Optional[str] = None) -> tuple[str, str]:
     resolved_email = auth.resolve_account_email(account_email)
 
-    if reference.isdigit():
+    if not isinstance(reference, MessageId) and reference.isdigit():
         index = int(reference)
         messages = load_last_list(resolved_email)
         for message in messages:
             if message.index == index:
-                return message.id, resolved_email
+                return MessageId(message.id), resolved_email
         raise ValueError(f"No message #{index} in last list.")
 
-    return reference, resolved_email
+    return MessageId(reference), resolved_email
 
 
 def resolve_message_references(reference: str, account_email: Optional[str] = None) -> tuple[list[str], str]:
     items, resolved_account = resolve_message_reference_items(reference, account_email=account_email)
-    return [item.id for item in items], resolved_account
+    return [MessageId(item.id) for item in items], resolved_account
 
 
 def resolve_message_reference_items(reference: str, account_email: Optional[str] = None) -> tuple[list[MessageSummary], str]:
@@ -369,8 +340,8 @@ def resolve_message_reference_items(reference: str, account_email: Optional[str]
     if not reference.strip():
         raise ValueError("Message reference is empty.")
 
-    if not any(character in reference for character in ",-"):
-        if reference.isdigit():
+    if isinstance(reference, MessageId) or not any(character in reference for character in ",-"):
+        if not isinstance(reference, MessageId) and reference.isdigit():
             index = int(reference)
             for message in load_last_list(resolved_email):
                 if message.index == index:
@@ -737,13 +708,13 @@ def _attachment_type(value: str) -> str:
 
 def _attachment_to_info(attachment: dict[str, Any]) -> AttachmentInfo:
     attachment_type = _attachment_type(attachment.get("@odata.type") or "")
-    name = _safe_attachment_name(
+    name = attachment_files.safe_name(
         attachment.get("name") or "",
         fallback=attachment.get("id") or "attachment",
     )
     content_type = attachment.get("contentType") or ""
-    is_smime_signature = _is_smime_signature_attachment(name, content_type)
-    is_smime_encrypted = _is_smime_encrypted_attachment(name, content_type)
+    is_smime_signature = attachment_files.is_smime_signature(name, content_type)
+    is_smime_encrypted = attachment_files.is_smime_encrypted(name, content_type)
     return AttachmentInfo(
         id=attachment.get("id") or "",
         name=name,
@@ -765,11 +736,11 @@ def _attachment_to_info(attachment: dict[str, Any]) -> AttachmentInfo:
 def list_attachments(message_id: str, account_email: Optional[str] = None) -> list[AttachmentInfo]:
     access_token, _account = auth.get_access_token(account_email)
     message_path_id = graph.quote_path_segment(message_id)
-    response = graph.get_json(
+    attachments = graph.get_all_pages(
         f"/me/messages/{message_path_id}/attachments",
         access_token,
     )
-    return [_attachment_to_info(attachment) for attachment in response.get("value") or []]
+    return [_attachment_to_info(attachment) for attachment in attachments]
 
 
 def get_message(
@@ -937,27 +908,6 @@ def mark_message(
     return _operation_summary(message)
 
 
-def _safe_attachment_name(name: str, fallback: str) -> str:
-    cleaned = Path(name or fallback).name.strip()
-    if not cleaned or cleaned in {".", ".."}:
-        cleaned = fallback
-    return cleaned.replace("\x00", "_")
-
-
-def _unique_path(directory: Path, filename: str, overwrite: bool) -> Path:
-    target = directory / filename
-    if overwrite or not target.exists():
-        return target
-
-    stem = target.stem
-    suffix = target.suffix
-    for counter in range(1, 1000):
-        candidate = directory / f"{stem}-{counter}{suffix}"
-        if not candidate.exists():
-            return candidate
-    raise ValueError(f"Could not choose a unique filename for {filename}")
-
-
 def save_attachments(
     reference: str,
     *,
@@ -996,66 +946,26 @@ def save_attachments(
             if not verify_result.trusted:
                 raise ValueError(verify_result.error or "S/MIME signature verification failed.")
             clear_bytes = verify_result.data or clear_bytes
-        saved = [
-            SavedAttachment(name=name, path=str(path), size=size)
-            for name, path, size in mime.save_attachments(
-                clear_bytes,
-                destination=destination_path,
-                unique_path=_unique_path,
-                safe_name=_safe_attachment_name,
-                overwrite=overwrite,
+        attachments = mime.attachments(mime.parse_message(clear_bytes), include_smime=True)
+    else:
+        message_path_id = graph.quote_path_segment(message.id)
+        values = graph.get_all_pages(f"/me/messages/{message_path_id}/attachments", access_token)
+        attachments = [
+            attachment_files.FileAttachment(
+                name=item.get("name") or "",
+                content_type=item.get("contentType") or "",
+                data=item.get("contentBytes") if (
+                    item.get("@odata.type") == "#microsoft.graph.fileAttachment"
+                    and isinstance(item.get("contentBytes"), str)
+                ) else None,
+                is_inline=bool(item.get("isInline")),
             )
+            for item in values
         ]
-        return SaveAttachmentsResult(
-            account=account.email,
-            id=message.id,
-            subject=message.subject,
-            saved=saved,
-            skipped=0,
-        )
-
-    message_path_id = graph.quote_path_segment(message.id)
-    response = graph.get_json(
-        f"/me/messages/{message_path_id}/attachments",
-        access_token,
+    saved, skipped = attachment_files.save(
+        attachments, destination=destination_path,
+        include_inline=include_inline, overwrite=overwrite,
     )
-
-    saved = []
-    skipped = 0
-    for index, attachment in enumerate(response.get("value") or [], start=1):
-        filename = _safe_attachment_name(
-            attachment.get("name") or "",
-            fallback=f"attachment-{index}",
-        )
-        content_type = attachment.get("contentType") or ""
-        if _is_smime_signature_attachment(filename, content_type) or _is_smime_encrypted_attachment(filename, content_type):
-            skipped += 1
-            continue
-        if attachment.get("@odata.type") != "#microsoft.graph.fileAttachment":
-            skipped += 1
-            continue
-        if attachment.get("isInline") and not include_inline:
-            skipped += 1
-            continue
-        content = attachment.get("contentBytes")
-        if not isinstance(content, str) or not content:
-            skipped += 1
-            continue
-
-        target = _unique_path(destination_path, filename, overwrite=overwrite)
-        try:
-            data = base64.b64decode(content, validate=True)
-        except ValueError as exc:
-            raise ValueError(f"Attachment content is not valid base64: {filename}") from exc
-        target.write_bytes(data)
-        saved.append(
-            SavedAttachment(
-                name=filename,
-                path=str(target),
-                size=len(data),
-            )
-        )
-
     return SaveAttachmentsResult(
         account=account.email,
         id=message.id,

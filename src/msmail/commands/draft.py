@@ -73,11 +73,12 @@ def create(
             edit=edit, interactive=True,
         )
 
-        result = drafts.create_draft(
-            draft,
-            account_email=account,
-            include_signature=not no_signature,
-        )
+        with compose.pending_edit(draft):
+            result = drafts.create_draft(
+                draft,
+                account_email=account,
+                include_signature=not no_signature,
+            )
     except compose.ComposeCancelled as exc:
         console.print(f"{exc}")
         raise typer.Exit()
@@ -111,7 +112,7 @@ def edit(
 
     try:
         template, info, body_content_type = drafts.compose_template_for_draft(
-            draft_id or reference or "",
+            mail.MessageId(draft_id) if draft_id is not None else reference or "",
             account_email=account,
         )
         # Keep an HTML draft an HTML draft; the template holds its raw markup.
@@ -122,7 +123,8 @@ def edit(
         if updated is None:
             console.print("Draft not modified.")
             raise typer.Exit()
-        result = drafts.update_draft(info.id, updated, account_email=info.account, include_signature=False)
+        with compose.pending_edit(updated):
+            result = drafts.update_draft(info.id, updated, account_email=info.account, include_signature=False)
     except compose.ComposeCancelled as exc:
         console.print(f"{exc}")
         raise typer.Exit()
@@ -151,14 +153,14 @@ def send(
         raise typer.BadParameter("Use either INDEX_OR_ID or --id.")
 
     if draft_id:
-        infos = [drafts.get_draft_info(draft_id, account_email=account)]
+        infos = [drafts.get_draft_info(mail.MessageId(draft_id), account_email=account)]
         labels = [draft_id]
     else:
         items, resolved_account = mail.resolve_message_reference_items(
             reference or "",
             account_email=account,
         )
-        infos = [drafts.get_draft_info(item.id, account_email=resolved_account) for item in items]
+        infos = [drafts.get_draft_info(mail.MessageId(item.id), account_email=resolved_account) for item in items]
         labels = [f"#{item.index}" if item.index else item.id for item in items]
 
     if len(infos) == 1:
@@ -201,7 +203,7 @@ def delete(
     if json_output and not yes:
         raise typer.BadParameter("--json requires --yes for delete.")
 
-    info = drafts.get_draft_info(draft_id or reference or "", account_email=account)
+    info = drafts.get_draft_info(mail.MessageId(draft_id) if draft_id is not None else reference or "", account_email=account)
 
     if not json_output:
         console.print("[bold]Draft ready to delete[/bold]")
@@ -211,7 +213,7 @@ def delete(
         console.print("Delete cancelled.")
         raise typer.Exit()
 
-    deleted = drafts.delete_draft(info.id, account_email=info.account)
+    deleted = drafts.delete_draft(mail.MessageId(info.id), account_email=info.account)
 
     if json_output:
         console.print_json(json.dumps(asdict(deleted)))

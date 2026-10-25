@@ -46,6 +46,7 @@ src/msmail/
     save_attachments.py
     search.py
   core/
+    attachments.py
     auth.py
     compose.py
     drafts.py
@@ -77,6 +78,18 @@ because local list-cache maintenance failed; refresh the list after its warning.
 Compose input validation is shared by `send` and `draft create`. Outgoing
 body/signing changes use `dataclasses.replace()` to preserve other draft fields.
 S/MIME working-directory ownership and failure cleanup are managed centrally.
+Editor-created drafts carry a `recovery_file`; wrap the server operation in
+`compose.pending_edit()` to remove it on success or report it on failure.
+Caller-provided files never become owned recovery files.
+
+CLI `--id` options use `mail.MessageId`, a string type that bypasses local
+index/range interpretation throughout nested calls. Resolved numeric references
+also return opaque IDs. Keep this distinction when adding commands.
+
+`core/attachments.py` owns shared S/MIME classification, inline filtering,
+filename selection and file output. Graph adapters provide base64 text, MIME
+adapters provide bytes, and unsupported attachments have `data=None`; empty
+strings and empty bytes are valid files.
 
 ## State Model
 

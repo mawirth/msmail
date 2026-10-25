@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Keep editor input until draft creation or update succeeds. Report the recovery
+  file on authentication, network, parsing or interruption failures.
+- Treat explicit `--id` values as opaque Graph IDs, including IDs containing
+  hyphens or looking like numeric references.
+- Follow all attachment pages when listing or saving files.
+- Share Graph and MIME attachment output rules: save empty files, require
+  `--inline` for embedded images, and consistently count skipped attachments.
+- Send upload-session chunks with `Content-Type: application/octet-stream`.
+
 - Report expected CLI failures consistently without tracebacks; diagnose corrupt
   account state. Operational failures use exit status 1 (usage errors remain 2).
 - Keep successful mail mutations successful when local list-cache updates fail;

@@ -142,6 +142,7 @@ def test_upload_url_does_not_receive_the_bearer_token(monkeypatch):
     assert graph.put_bytes("https://upload.example/session", b"chunk") == {}
     assert not any(key.lower() == "authorization" for key in captured["headers"])
     assert captured["timeout"] == graph.UPLOAD_TIMEOUT
+    assert captured["headers"]["Content-type"] == "application/octet-stream"
 
 
 def test_ambiguous_gateway_timeout_is_not_replayed(monkeypatch):

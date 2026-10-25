@@ -8,6 +8,7 @@ import typer
 
 from msmail.console import console
 from msmail.core import compose
+from msmail.core import mail
 from msmail.core import drafts
 
 
@@ -87,15 +88,16 @@ def reply_message(
             edit=edit,
             html=html,
         )
-        result = drafts.create_reply_draft(
-            message_id or reference or "",
-            response,
-            reply_all=reply_all,
-            sign=sign,
-            encrypt=encrypt,
-            account_email=account,
-            include_signature=not no_signature,
-        )
+        with compose.pending_edit(response):
+            result = drafts.create_reply_draft(
+                mail.MessageId(message_id) if message_id is not None else reference or "",
+                response,
+                reply_all=reply_all,
+                sign=sign,
+                encrypt=encrypt,
+                account_email=account,
+                include_signature=not no_signature,
+            )
     except compose.ComposeCancelled as exc:
         console.print(f"{exc}")
         raise typer.Exit()
@@ -143,14 +145,15 @@ def forward_message(
             require_to=True,
             html=html,
         )
-        result = drafts.create_forward_draft(
-            message_id or reference or "",
-            response,
-            sign=sign,
-            encrypt=encrypt,
-            account_email=account,
-            include_signature=not no_signature,
-        )
+        with compose.pending_edit(response):
+            result = drafts.create_forward_draft(
+                mail.MessageId(message_id) if message_id is not None else reference or "",
+                response,
+                sign=sign,
+                encrypt=encrypt,
+                account_email=account,
+                include_signature=not no_signature,
+            )
     except compose.ComposeCancelled as exc:
         console.print(f"{exc}")
         raise typer.Exit()

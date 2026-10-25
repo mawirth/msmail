@@ -29,7 +29,7 @@ def mark_message(
         raise typer.BadParameter("Use exactly one of --read or --unread.")
 
     resolved_ids, resolved_account = mail.resolve_message_references(
-        message_id or reference or "",
+        mail.MessageId(message_id) if message_id is not None else reference or "",
         account_email=account,
     )
     results = run_batch(

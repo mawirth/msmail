@@ -1,6 +1,6 @@
 import pytest
 
-from msmail.core import mail
+from msmail.core import attachments, mail
 from msmail.commands import read as read_command
 
 
@@ -664,7 +664,7 @@ def test_list_attachments_returns_file_and_inline_metadata(monkeypatch):
     monkeypatch.setattr(
         mail.graph,
         "get_json",
-        lambda path, access_token: {
+        lambda path, access_token, params=None: {
             "value": [
                 {
                     "@odata.type": "#microsoft.graph.fileAttachment",
@@ -879,8 +879,8 @@ def test_smime_attachment_is_never_both_signed_and_encrypted():
 
     for name, content_type, expected in cases:
         actual = (
-            mail._is_smime_signature_attachment(name, content_type),
-            mail._is_smime_encrypted_attachment(name, content_type),
+            attachments.is_smime_signature(name, content_type),
+            attachments.is_smime_encrypted(name, content_type),
         )
         assert actual == expected, f"{name} / {content_type!r}: {actual} != {expected}"
         assert not all(actual), f"{name} / {content_type!r} classified as both"
@@ -909,3 +909,65 @@ def test_encrypted_message_is_not_reported_as_signed(monkeypatch):
     assert summary.smime_encrypted is True
     assert summary.smime_signed is False
     assert summary.has_user_attachments is False
+
+
+@pytest.mark.parametrize('operation', ['list', 'save'])
+def test_attachment_pages_are_all_read(monkeypatch, tmp_path, operation):
+    monkeypatch.setattr(mail.auth, 'get_access_token', lambda *args: ('token', Account()))
+    calls = []
+    next_link = 'https://graph.microsoft.com/v1.0/me/messages/messageID/attachments?page=2'
+    def get_json(path, token, params=None):
+        calls.append(path)
+        if path == next_link:
+            return {'value': [{'@odata.type': '#microsoft.graph.fileAttachment', 'name': 'empty.txt', 'contentBytes': ''}]}
+        return {'value': [{'@odata.type': '#microsoft.graph.fileAttachment', 'name': 'first.txt', 'contentBytes': 'YQ=='}], '@odata.nextLink': next_link}
+    monkeypatch.setattr(mail.graph, 'get_json', get_json)
+    if operation == 'list':
+        result = mail.list_attachments('messageID')
+        assert [item.name for item in result] == ['first.txt', 'empty.txt']
+    else:
+        monkeypatch.setattr(mail, 'get_message', lambda *a, **kw: make_detail('messageID'))
+        result = mail.save_attachments(mail.MessageId('messageID'), destination=str(tmp_path), account_email='me@example.com')
+        assert [item.name for item in result.saved] == ['first.txt', 'empty.txt']
+        assert (tmp_path / 'empty.txt').read_bytes() == b''
+        assert result.skipped == 0
+    assert calls == ['/me/messages/messageID/attachments', next_link]
+
+
+@pytest.mark.parametrize('source', ['graph', 'decrypt', 'verify'])
+@pytest.mark.parametrize('include_inline', [False, True])
+@pytest.mark.parametrize('overwrite', [False, True])
+def test_graph_and_mime_attachment_saving_agree(monkeypatch, tmp_path, source, include_inline, overwrite):
+    from email.message import EmailMessage
+    from types import SimpleNamespace
+    monkeypatch.setattr(mail.auth, 'get_access_token', lambda *args: ('token', Account()))
+    monkeypatch.setattr(mail, 'get_message', lambda *a, **kw: make_detail('messageID'))
+    values = [
+        {'@odata.type': '#microsoft.graph.fileAttachment', 'name': 'empty.txt', 'contentType': 'text/plain', 'contentBytes': ''},
+        {'@odata.type': '#microsoft.graph.fileAttachment', 'name': 'image.png', 'contentType': 'image/png', 'contentBytes': 'aW1hZ2U=', 'isInline': True},
+        {'@odata.type': '#microsoft.graph.fileAttachment', 'name': 'smime.p7s', 'contentType': 'application/pkcs7-signature', 'contentBytes': 'c2ln'},
+    ]
+    monkeypatch.setattr(mail.graph, 'get_json', lambda *a, **kw: {'value': values})
+    message = EmailMessage()
+    message.set_content('Body')
+    message.add_attachment(b'', maintype='text', subtype='plain', filename='empty.txt')
+    message.add_attachment(b'image', maintype='image', subtype='png', filename='image.png', disposition='inline')
+    message.add_attachment(b'sig', maintype='application', subtype='pkcs7-signature', filename='smime.p7s')
+    payload = message.as_bytes()
+    monkeypatch.setattr(mail, 'get_message_mime', lambda *a, **kw: (payload, 'me@example.com'))
+    monkeypatch.setattr(mail.smime, 'decrypt_mime_bytes', lambda *a, **kw: SimpleNamespace(decrypted=True, data=payload))
+    monkeypatch.setattr(mail.smime, 'verify_signed_mime_bytes', lambda *a, **kw: SimpleNamespace(trusted=True, data=payload))
+    (tmp_path / 'empty.txt').write_bytes(b'existing')
+    result = mail.save_attachments(
+        mail.MessageId('messageID'), destination=str(tmp_path), account_email='me@example.com',
+        decrypt=source == 'decrypt', verify_smime=source == 'verify',
+        include_inline=include_inline, overwrite=overwrite,
+    )
+    empty_name = 'empty.txt' if overwrite else 'empty-1.txt'
+    assert [a.name for a in result.saved] == ['empty.txt'] + (['image.png'] if include_inline else [])
+    assert (tmp_path / empty_name).read_bytes() == b''
+    if not overwrite:
+        assert (tmp_path / 'empty.txt').read_bytes() == b'existing'
+    assert result.skipped == (1 if include_inline else 2)
+    assert not (tmp_path / 'smime.p7s').exists()
+    assert (tmp_path / 'image.png').exists() == include_inline

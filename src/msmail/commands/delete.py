@@ -40,7 +40,7 @@ def delete_message(
         raise typer.BadParameter("--json requires --yes for delete.")
 
     items, resolved_account = mail.resolve_message_reference_items(
-        message_id or reference or "",
+        mail.MessageId(message_id) if message_id is not None else reference or "",
         account_email=account,
     )
     # The preview only shows sender and subject; loading attachment details
@@ -69,7 +69,7 @@ def delete_message(
 
     results = run_batch(
         previews,
-        lambda message: mail.delete_message(message.id, account_email=resolved_account, message=message),
+        lambda message: mail.delete_message(mail.MessageId(message.id), account_email=resolved_account, message=message),
         identify=lambda message: message.id,
     )
 

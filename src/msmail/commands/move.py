@@ -34,7 +34,7 @@ def move_message(
 
     normalized_folder = folder_id or mail.normalize_folder(folder or "")
     items, resolved_account = mail.resolve_message_reference_items(
-        message_id or reference or "",
+        mail.MessageId(message_id) if message_id is not None else reference or "",
         account_email=account,
     )
     # The preview only shows sender and subject; loading attachment details
@@ -68,7 +68,7 @@ def move_message(
     results = run_batch(
         previews,
         lambda message: mail.move_message(
-            message.id,
+            mail.MessageId(message.id),
             destination_folder=folder or "",
             destination_folder_id=folder_id,
             account_email=resolved_account,

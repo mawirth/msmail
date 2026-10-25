@@ -1,19 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from email import policy
 from email.message import Message
 from email.parser import BytesParser
-from pathlib import Path
 
+from msmail.core import attachments as attachment_files
 from msmail.core import render
-
-
-@dataclass(frozen=True)
-class MimeAttachment:
-    name: str
-    content_type: str
-    data: bytes
+from msmail.core.attachments import FileAttachment
 
 
 def _decode_part(part: Message) -> str:
@@ -85,7 +78,7 @@ def attachment_names(message: Message) -> list[str]:
     return [attachment.name for attachment in attachments(message, include_smime=True)]
 
 
-def attachments(message: Message, *, include_smime: bool = False) -> list[MimeAttachment]:
+def attachments(message: Message, *, include_smime: bool = False) -> list[FileAttachment]:
     result = []
     for part in message.walk():
         if part.is_multipart():
@@ -97,35 +90,17 @@ def attachments(message: Message, *, include_smime: bool = False) -> list[MimeAt
         filename = filename or "attachment"
         content_type = part.get_content_type().lower()
         if not include_smime and (
-            filename.lower() in {"smime.p7s", "smime.p7m"}
-            or "pkcs7-signature" in content_type
-            or "pkcs7-mime" in content_type
+            attachment_files.is_smime_signature(filename, content_type)
+            or attachment_files.is_smime_encrypted(filename, content_type)
         ):
             continue
         payload = part.get_payload(decode=True) or b""
         result.append(
-            MimeAttachment(
+            FileAttachment(
                 name=filename,
                 content_type=content_type,
                 data=payload,
+                is_inline=disposition == "inline",
             )
         )
     return result
-
-
-def save_attachments(
-    mime_bytes: bytes,
-    *,
-    destination: Path,
-    unique_path,
-    safe_name,
-    overwrite: bool,
-) -> list[tuple[str, Path, int]]:
-    parsed = parse_message(mime_bytes)
-    saved = []
-    for index, attachment in enumerate(attachments(parsed), start=1):
-        filename = safe_name(attachment.name, fallback=f"attachment-{index}")
-        target = unique_path(destination, filename, overwrite)
-        target.write_bytes(attachment.data)
-        saved.append((filename, target, len(attachment.data)))
-    return saved

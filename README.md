@@ -247,6 +247,13 @@ file, for example `Attach: ["report,final.pdf", "data;2026.csv"]`. Generated edi
 templates use this unambiguous form. Repeated `--attach` options also preserve each
 path exactly.
 
+Editor files are removed only after the draft has been saved successfully. If
+saving fails, msmail prints the retained file's path so you can recover your
+text. A retained compose file can be reopened or used with `draft create --file`;
+for HTML content, also pass `--html`. Reply/forward files use the corresponding
+command's `--file` option. An unchanged editor buffer cancels without creating
+a new draft.
+
 Edit, send or discard an existing draft:
 
 ```sh
@@ -285,6 +292,11 @@ msmail save-attachments 1 --decrypt --verify-smime --to ~/Downloads
 Files above the simple Graph limit are uploaded through upload sessions, up to
 150 MB. For encrypted mail, attachments are embedded in the encrypted MIME
 message instead.
+
+Saving follows all attachment pages and includes empty files. Inline images
+require `--inline`, including when using `--decrypt` or `--verify-smime`.
+Existing files are preserved using numbered filenames unless `--overwrite` is
+specified. S/MIME signature/encryption containers are skipped.
 
 ## Managing Messages
 
