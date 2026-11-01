@@ -158,6 +158,29 @@ address; `trusted` requires both checks to succeed. A valid signature with a
 different sender is displayed as a mismatch. Saving with `--verify-smime` refuses
 such a message. The flag also works without `--decrypt` on signed-only messages.
 
+## Exporting .eml Files
+
+Use the same export command for signed, encrypted or signed-and-encrypted mail:
+
+```sh
+msmail export 1 --to message.eml
+msmail export --id AAMkAG... --to message.eml --account you@example.com
+```
+
+The complete MIME content returned by Graph is saved unchanged, including
+attachments and S/MIME containers:
+
+- Signed messages retain their signature for verification in an S/MIME-capable
+  mail client. Export itself does not verify the signature or establish trust.
+- Encrypted messages remain encrypted. Opening them requires a recipient's
+  matching certificate and private key in the mail client.
+- Signed-and-encrypted messages retain both protections. The mail client can
+  decrypt the message and then verify its signature.
+
+Export does not need your local S/MIME key and does not offer `--decrypt` or
+`--verify-smime`. To decrypt or verify within msmail, use `read` with those flags.
+Existing files are preserved unless you explicitly pass `--overwrite`.
+
 ## Temporary Files
 
 OpenSSL operations use private temporary directories below `/tmp` by default.

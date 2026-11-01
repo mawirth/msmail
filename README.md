@@ -226,6 +226,9 @@ Exports one complete message using [Graph's MIME endpoint](https://learn.microso
 The returned bytes are saved unchanged, including headers, body and attachments.
 S/MIME signatures and encryption remain intact; encrypted exports still require
 the recipient's private key to read. Exporting does not mark the message as read.
+The same command works for signed, encrypted and signed-and-encrypted messages.
+Export does not verify signatures or decrypt content; an S/MIME-capable mail
+client can do that when opening the file. See [S/MIME export](docs/SMIME.md#exporting-eml-files).
 
 `--to` requires a filename in an existing directory. Existing files are refused
 unless `--overwrite` is given. New files are created with owner-only permissions
