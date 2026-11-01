@@ -86,6 +86,12 @@ CLI `--id` options use `mail.MessageId`, a string type that bypasses local
 index/range interpretation throughout nested calls. Resolved numeric references
 also return opaque IDs. Keep this distinction when adding commands.
 
+`list/search --page-json` uses `page_mode=True` and `continue_page()` to return
+one complete server page without touching the last-list cache. `core/cursors.py`
+owns the versioned cursor schema and strict Graph URL validation. Page requests
+disable HTTP redirects. Keep the message mapping shared with interactive
+commands; see [PAGINATION.md](PAGINATION.md) for the public JSON contract.
+
 `core/attachments.py` owns shared S/MIME classification, inline filtering,
 filename selection and file output. Graph adapters provide base64 text, MIME
 adapters provide bytes, and unsupported attachments have `data=None`; empty

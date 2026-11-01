@@ -17,3 +17,4 @@ def isolated_account_state(monkeypatch, tmp_path):
 
     monkeypatch.setattr(auth, "_app", no_network)
     monkeypatch.setattr(graph.request, "urlopen", no_network)
+    monkeypatch.setattr(graph.request, "build_opener", no_network)

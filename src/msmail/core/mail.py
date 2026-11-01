@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from msmail.core import attachments as attachment_files
-from msmail.core import auth, graph, mime, smime
+from msmail.core import auth, cursors, graph, mime, smime
 from msmail.core.attachments import SavedAttachment
 from msmail.core.errors import MsmailError
 
@@ -101,6 +101,8 @@ class MessageList:
     offset: int = 0
     source: str = "list"
     truncated: bool = False
+    account: str = ""
+    next_cursor: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -477,6 +479,7 @@ def _collect_pages(
     params: dict[str, str],
     *,
     fetch: Optional[int],
+    single_page: bool = False,
 ) -> tuple[list[dict[str, Any]], Optional[str], bool]:
     """Fetch raw message dicts, following `@odata.nextLink` where needed.
 
@@ -484,6 +487,10 @@ def _collect_pages(
     for the next page and whether the page ceiling cut the result short.
     """
     values: list[dict[str, Any]] = []
+    if single_page:
+        response = graph.get_json(path, access_token, params=params, follow_redirects=False)
+        # Never trim a server page: its nextLink starts after the entire page.
+        return response.get("value") or [], response.get("@odata.nextLink"), False
     response = graph.get_json(path, access_token, params=params)
     pages = 1
     while True:
@@ -511,7 +518,10 @@ def list_messages(
     after: Optional[str] = None,
     before: Optional[str] = None,
     include_attachment_details: bool = False,
+    page_mode: bool = False,
 ) -> MessageList:
+    if page_mode:
+        _validate_page_fetch(fetch)
     folder_id = normalize_folder(folder)
     if folder_id != "inbox" and inbox_class != "all":
         raise ValueError("--focused/--other apply only to the inbox folder.")
@@ -544,6 +554,7 @@ def list_messages(
         access_token,
         params,
         fetch=fetch,
+        single_page=page_mode,
     )
     return _store_page(
         account_email,
@@ -551,6 +562,43 @@ def list_messages(
         next_link=next_link,
         truncated=truncated,
         include_attachment_details=include_attachment_details,
+        cache=not page_mode,
+    )
+
+
+def _validate_page_fetch(fetch: Optional[int]) -> None:
+    if type(fetch) is not int or not 1 <= fetch <= PAGE_SIZE:
+        raise ValueError(f"--page-json requires --fetch between 1 and {PAGE_SIZE} (default: 25).")
+
+
+def continue_page(cursor: str, *, source: str, account_email: Optional[str] = None) -> MessageList:
+    """Continue a caller-owned cursor without reading or writing last-list.json."""
+    state = cursors.decode(cursor)
+    if state.source != source:
+        raise ValueError(f"This cursor belongs to {state.source}, not {source}.")
+    if account_email is not None:
+        requested_account = auth.resolve_account_email(account_email)
+        if requested_account.casefold() != state.account.casefold():
+            raise ValueError("--account conflicts with the cursor account.")
+    access_token, account = auth.get_access_token(state.account)
+    if account.email.casefold() != state.account.casefold():
+        raise ValueError("The authenticated account conflicts with the cursor account.")
+    try:
+        response = graph.get_json(state.next_link, access_token, follow_redirects=False)
+    except graph.GraphError as exc:
+        raise graph.GraphError(
+            "Could not continue the mail cursor; retry or start a new --page-json query. "
+            f"({exc})"
+        ) from exc
+    return _store_page(
+        account.email,
+        response.get("value") or [],
+        next_link=response.get("@odata.nextLink"),
+        truncated=False,
+        offset=state.offset,
+        include_attachment_details=state.attachment_details,
+        source=state.source,
+        cache=False,
     )
 
 
@@ -595,8 +643,18 @@ def _store_page(
     offset: int = 0,
     include_attachment_details: bool = False,
     source: str = "list",
+    cache: bool = True,
 ) -> MessageList:
-    """Number a page from 1, cache it and return it."""
+    """Number a page from 1; either cache it or return caller-owned state."""
+    next_cursor = None
+    if not cache and next_link is not None:
+        next_cursor = cursors.encode(cursors.Cursor(
+            account=account_email,
+            source=source,
+            next_link=next_link,
+            offset=offset + len(values),
+            attachment_details=include_attachment_details,
+        ))
     messages = []
     for index, message in enumerate(values, start=1):
         attachments = None
@@ -604,19 +662,22 @@ def _store_page(
         if include_attachment_details and message.get("hasAttachments") and message_id:
             attachments = list_attachments(message_id, account_email=account_email)
         messages.append(_message_to_summary(account_email, index, message, attachments))
-    save_last_list(
-        account_email,
-        messages,
-        next_link=next_link,
-        offset=offset,
-        source=source,
-    )
+    if cache:
+        save_last_list(
+            account_email,
+            messages,
+            next_link=next_link,
+            offset=offset,
+            source=source,
+        )
     return MessageList(
         messages=messages,
         next_link=next_link,
         offset=offset,
         source=source,
         truncated=truncated,
+        account=account_email,
+        next_cursor=next_cursor,
     )
 
 
@@ -632,14 +693,17 @@ def search_messages(
     fetch: Optional[int] = 25,
     account_email: Optional[str] = None,
     include_attachment_details: bool = False,
+    page_mode: bool = False,
 ) -> MessageList:
+    if page_mode:
+        _validate_page_fetch(fetch)
     if not query.strip():
         raise ValueError("Search query is empty.")
 
     access_token, account = auth.get_access_token(account_email)
     account_email = account.email
 
-    values, _next_link, truncated = _collect_pages(
+    values, next_link, truncated = _collect_pages(
         "/me/messages",
         access_token,
         {
@@ -648,16 +712,18 @@ def search_messages(
             "$select": LIST_SELECT,
         },
         fetch=fetch,
+        single_page=page_mode,
     )
-    # Graph orders $search results by relevance and may shift them between
-    # pages, so no cursor is kept; `list --more` refuses to continue a search.
+    # Interactive search still keeps no continuation for `list --more`.
+    # Page mode follows Graph's continuation; it does not promise a snapshot.
     return _store_page(
         account_email,
         values,
-        next_link=None,
+        next_link=next_link if page_mode else None,
         truncated=truncated,
         include_attachment_details=include_attachment_details,
         source="search",
+        cache=not page_mode,
     )
 
 

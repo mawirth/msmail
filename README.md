@@ -214,6 +214,21 @@ msmail search "from:alice@example.com" --fetch 10 --json
 msmail folders
 ```
 
+Applications can use independent pagination without changing the interactive
+message numbers or `--more` state:
+
+```sh
+msmail list --all --fetch 25 --page-json
+msmail list --cursor "<next_cursor>" --page-json
+msmail search "invoice" --fetch 25 --page-json
+msmail search --cursor "<next_cursor>" --page-json
+```
+
+The response contains `messages` with the existing JSON fields, `next_cursor`
+(`null` at the end), `account`, `source` and `offset`. The cursor carries the
+account and query; search continuation needs no repeated search text. Treat it
+as an opaque string. See [the pagination contract](docs/PAGINATION.md).
+
 ## Exporting Mail
 
 ```sh
@@ -491,9 +506,9 @@ Known limitations:
   message. A To recipient can see that further recipients exist. Send separately
   if that matters.
 - `list --more` only pages forward. To get back to an earlier page, list again.
-- `search` results cannot be paged: Graph orders them by relevance and may shift
-  them between pages, so `--more` refuses to continue a search. Use `--fetch`
-  with a larger number instead.
+- Interactive `search` results cannot be continued with `list --more`. Use
+  `search --page-json` and its cursor for independent pagination. Graph paging
+  is not a snapshot; mailbox changes can affect results between requests.
 
 ## Development
 

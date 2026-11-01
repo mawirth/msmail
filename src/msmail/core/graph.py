@@ -31,6 +31,12 @@ class GraphError(MsmailError):
     pass
 
 
+class _NoRedirect(request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        fp.close()
+        raise GraphError("Graph redirected a mail page request; refusing to follow it.")
+
+
 def quote_path_segment(value: str) -> str:
     return parse.quote(value, safe="")
 
@@ -63,12 +69,14 @@ def _request(
     headers: Optional[Mapping[str, str]] = None,
     accept: str = "application/json",
     timeout: int = DEFAULT_TIMEOUT,
+    follow_redirects: bool = True,
 ) -> bytes:
     url = _absolute_url(path, params)
     request_headers = {"Accept": accept}
     if access_token:
         request_headers["Authorization"] = f"Bearer {access_token}"
     request_headers.update(headers or {})
+    open_request = request.urlopen if follow_redirects else request.build_opener(_NoRedirect()).open
 
     for attempt in range(MAX_ATTEMPTS):
         graph_request = request.Request(
@@ -78,7 +86,7 @@ def _request(
             method=method,
         )
         try:
-            with request.urlopen(graph_request, timeout=timeout) as response:
+            with open_request(graph_request, timeout=timeout) as response:
                 return response.read()
         except error.HTTPError as exc:
             if exc.code in RETRY_STATUS_CODES and attempt < MAX_ATTEMPTS - 1:
@@ -105,8 +113,12 @@ def get_json(
     path: str,
     access_token: str,
     params: Optional[Mapping[str, str]] = None,
+    *,
+    follow_redirects: bool = True,
 ) -> dict[str, Any]:
-    return _json_response(_request("GET", path, access_token=access_token, params=params))
+    return _json_response(_request(
+        "GET", path, access_token=access_token, params=params, follow_redirects=follow_redirects,
+    ))
 
 
 def get_all_pages(

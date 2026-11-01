@@ -82,6 +82,30 @@ def render_position(state: mail.MessageList) -> None:
         console.print(" · ".join(parts))
 
 
+def resolve_page_fetch(value: Optional[str]) -> int:
+    fetch = resolve_fetch("25" if value is None or value.strip().lower() == "auto" else value)
+    if fetch is None or not 1 <= fetch <= mail.PAGE_SIZE:
+        raise typer.BadParameter(f"--page-json requires --fetch between 1 and {mail.PAGE_SIZE}.")
+    return fetch
+
+
+def validate_page_options(page_json: bool, json_output: bool, cursor: Optional[str]) -> None:
+    if page_json and json_output:
+        raise typer.BadParameter("Use either --json or --page-json.")
+    if cursor is not None and not page_json:
+        raise typer.BadParameter("--cursor requires --page-json.")
+
+
+def print_page(state: mail.MessageList) -> None:
+    console.print_json(json.dumps({
+        "messages": [asdict(message) for message in state.messages],
+        "next_cursor": state.next_cursor,
+        "account": state.account,
+        "source": state.source,
+        "offset": state.offset,
+    }))
+
+
 def render_table(messages: list[mail.MessageSummary]) -> None:
     terminal_width = console.size.width or 100
     fixed_width = 4 + 17 + 7 + 4
@@ -129,7 +153,7 @@ def list_messages(
     fetch: Optional[str] = typer.Option(
         None,
         "--fetch",
-        help="How many messages to fetch: a number, 'auto' (default) or 'all'.",
+        help="How many messages to fetch: a number, 'auto' (default) or 'all'. With --page-json: page size 1-100 (default 25).",
     ),
     more: bool = typer.Option(
         False,
@@ -145,12 +169,17 @@ def list_messages(
         help="Inspect attachments to distinguish user files from S/MIME metadata.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Print JSON output."),
+    page_json: bool = typer.Option(False, "--page-json", help="Print one page with an independent cursor; leave the list cache untouched."),
+    cursor: Optional[str] = typer.Option(None, "--cursor", help="Continue a previous --page-json listing."),
     account: Optional[str] = typer.Option(None, "--account", help="Mail account email address."),
 ) -> None:
+    validate_page_options(page_json, json_output, cursor)
+    if page_json and more:
+        raise typer.BadParameter("--page-json cannot be combined with --more; use --cursor.")
     if other and all_messages:
         raise typer.BadParameter("Use only one of --other or --all.")
 
-    if more:
+    if more or cursor is not None:
         # The cursor carries the original query, so re-stating part of it would
         # silently be ignored.
         conflicting = [
@@ -163,18 +192,22 @@ def list_messages(
                 ("--before", before),
                 ("--other", other or None),
                 ("--all", all_messages or None),
+                ("--attachment-details", True if cursor is not None and attachment_details else None),
             ]
-            if value
+            if value is not None and (cursor is not None or bool(value))
         ]
         if conflicting:
             raise typer.BadParameter(
-                f"--more continues the previous listing and cannot be combined with "
+                f"{'--cursor' if cursor is not None else '--more'} continues the previous listing and cannot be combined with "
                 f"{', '.join(conflicting)}."
             )
-        state = mail.list_more(
-            account_email=account,
-            include_attachment_details=attachment_details,
-        )
+        if cursor is not None:
+            state = mail.continue_page(cursor, source="list", account_email=account)
+        else:
+            state = mail.list_more(
+                account_email=account,
+                include_attachment_details=attachment_details,
+            )
     else:
         inbox_class: mail.InboxClass = "focused"
         folder_id = mail.normalize_folder(folder or "inbox")
@@ -188,13 +221,18 @@ def list_messages(
         state = mail.list_messages(
             folder=folder or "inbox",
             inbox_class=inbox_class,
-            fetch=resolve_fetch(fetch),
+            fetch=resolve_page_fetch(fetch) if page_json else resolve_fetch(fetch),
             account_email=account,
             from_address=from_address,
             after=after,
             before=before,
             include_attachment_details=attachment_details,
+            page_mode=page_json,
         )
+
+    if page_json:
+        print_page(state)
+        return
 
     if json_output:
         console.print_json(json.dumps([asdict(message) for message in state.messages]))

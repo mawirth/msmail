@@ -1,6 +1,9 @@
 import io
 import json
+from email.message import Message
 from urllib import error
+from urllib.request import build_opener
+from urllib.response import addinfourl
 
 import pytest
 
@@ -166,3 +169,25 @@ def test_ambiguous_gateway_timeout_is_not_replayed(monkeypatch):
         graph.post_empty("/me/messages/draft-id/send", "token")
 
     assert len(attempts) == 1
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_page_requests_refuse_redirects_without_sending_token_to_target(monkeypatch, status):
+    requests = []
+
+    class RedirectResponse(graph.request.HTTPSHandler):
+        def https_open(self, req):
+            requests.append(req.full_url)
+            headers = Message()
+            headers["Location"] = "https://attacker.example/messages"
+            response = addinfourl(
+                io.BytesIO(b""), headers, req.full_url, status,
+            )
+            response.msg = "Redirect"
+            return response
+
+    monkeypatch.setattr(graph.request, "build_opener", lambda *handlers: build_opener(*handlers, RedirectResponse()))
+    source = "https://graph.microsoft.com/v1.0/me/messages"
+    with pytest.raises(graph.GraphError):
+        graph.get_json(source, "synthetic-token", follow_redirects=False)
+    assert requests == [source]

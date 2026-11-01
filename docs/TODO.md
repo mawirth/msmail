@@ -60,9 +60,10 @@ operation with no preview. Documented in the README.
   alias without a reason.
 - **Paging only goes forward.** `--back` would need a stack of cursors. Left out
   until it is actually missed.
-- **`search` keeps no paging cursor.** Graph orders `$search` by relevance and
-  may shift results between pages, so `list --more` refuses to continue a
-  search. Use a larger `--fetch`.
+- **Interactive `search` keeps no paging cursor in the shared cache.**
+  `list --more` still refuses to continue a search. Applications can use
+  `search --page-json` and `--cursor` independently; these follow Graph's
+  continuation without promising a stable snapshot.
 - **The `Bcc:` header in signed MIME drafts is not a leak.** Verified against
   Graph on 2026-07-30: an uploaded MIME draft has its `Bcc:` header parsed into
   the structured `bccRecipients` field, exactly as with a normal JSON draft. A

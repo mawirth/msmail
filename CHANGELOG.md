@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add independent `list/search --page-json` pagination with opaque `--cursor`
+  continuation, pinned accounts and unchanged message JSON fields. This mode
+  leaves `last-list.json` untouched, validates cursor destinations and rejects
+  redirects or conflicting options. Search continuation needs no repeated query.
+
 - Add `export INDEX_OR_ID --to message.eml` to save complete MIME messages,
   including attachments and unchanged S/MIME content. Support `--id`, `--account`,
   `--json` and explicit `--overwrite`.
