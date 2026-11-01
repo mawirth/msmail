@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add `export INDEX_OR_ID --to message.eml` to save complete MIME messages,
+  including attachments and unchanged S/MIME content. Support `--id`, `--account`,
+  `--json` and explicit `--overwrite`.
+
 - Keep editor input until draft creation or update succeeds. Report the recovery
   file on authentication, network, parsing or interruption failures.
 - Treat explicit `--id` values as opaque Graph IDs, including IDs containing

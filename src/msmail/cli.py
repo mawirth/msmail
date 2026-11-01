@@ -8,6 +8,7 @@ from msmail.core.errors import MsmailError
 from msmail.commands import auth
 from msmail.commands import delete as delete_command
 from msmail.commands import doctor as doctor_command
+from msmail.commands import export as export_command
 from msmail.commands import draft as draft_command
 from msmail.commands import list as list_command
 from msmail.commands import mark as mark_command
@@ -42,6 +43,7 @@ app.add_typer(draft_command.app, name="draft")
 app.add_typer(smime_command.app, name="smime")
 app.command("list")(list_command.list_messages)
 app.command("read")(read_command.read_message)
+app.command("export")(export_command.export_message)
 app.command("delete")(delete_command.delete_message)
 app.command("doctor")(doctor_command.doctor)
 app.command("move")(move_command.move_message)

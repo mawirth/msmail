@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, time, timezone
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -130,6 +131,14 @@ class SaveAttachmentsResult:
     subject: str
     saved: list[SavedAttachment]
     skipped: int
+
+
+@dataclass(frozen=True)
+class ExportMessageResult:
+    account: str
+    id: str
+    path: str
+    size: int
 
 
 LIST_SELECT = ",".join(
@@ -815,6 +824,30 @@ def get_message_mime(message_id: str, account_email: Optional[str] = None) -> tu
         ),
         account.email,
     )
+
+
+def export_message(
+    reference: str,
+    *,
+    destination: str,
+    overwrite: bool = False,
+    account_email: Optional[str] = None,
+) -> ExportMessageResult:
+    """Save Graph's MIME bytes unchanged, including attachments and S/MIME."""
+    path = Path(destination).expanduser().absolute()
+    if not overwrite and path.exists():
+        raise FileExistsError(f"File already exists: {path}. Use --overwrite to replace it.")
+    message_id, resolved_account = resolve_message_reference(reference, account_email)
+    data, account = get_message_mime(message_id, account_email=resolved_account)
+    # Fetch before opening so authentication/network failures cannot truncate a file.
+    # Exclusive creation also protects against a file appearing during the fetch.
+    with open(
+        path,
+        "wb" if overwrite else "xb",
+        opener=lambda name, flags: os.open(name, flags, 0o600),
+    ) as output:
+        output.write(data)
+    return ExportMessageResult(account=account, id=message_id, path=str(path), size=len(data))
 
 
 def _operation_summary(message: MessageDetail, destination_folder: Optional[str] = None) -> MessageOperationResult:

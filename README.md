@@ -214,6 +214,23 @@ msmail search "from:alice@example.com" --fetch 10 --json
 msmail folders
 ```
 
+## Exporting Mail
+
+```sh
+msmail export 1 --to message.eml
+msmail export --id AAMkAG... --to ~/Downloads/message.eml --account you@example.com
+msmail export 1 --to message.eml --overwrite --json
+```
+
+Exports one complete message using [Graph's MIME endpoint](https://learn.microsoft.com/en-us/graph/outlook-get-mime-message).
+The returned bytes are saved unchanged, including headers, body and attachments.
+S/MIME signatures and encryption remain intact; encrypted exports still require
+the recipient's private key to read. Exporting does not mark the message as read.
+
+`--to` requires a filename in an existing directory. Existing files are refused
+unless `--overwrite` is given. New files are created with owner-only permissions
+on POSIX. `--json` reports the account, message ID, absolute path and byte size.
+
 ## Writing Mail
 
 Create a draft from options, from a file, or in your editor:
