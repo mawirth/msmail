@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Publish EML exports atomically after writing and syncing a private temporary
+  file in the destination directory. Preserve old files on write/sync failures
+  and retain race-safe no-overwrite behavior; clean temporary data on failure.
+
 - Read local EML files with `read --file`, without mailbox access or list-cache
   changes. Preserve the source bytes and report local identity/date provenance
   explicitly. Support HTML, attachment metadata, S/MIME verification and decryption.

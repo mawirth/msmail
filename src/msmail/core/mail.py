@@ -5,6 +5,7 @@ from datetime import date, datetime, time, timezone
 import json
 import logging
 import os
+import tempfile
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -905,14 +906,26 @@ def export_message(
         raise FileExistsError(f"File already exists: {path}. Use --overwrite to replace it.")
     message_id, resolved_account = resolve_message_reference(reference, account_email)
     data, account = get_message_mime(message_id, account_email=resolved_account)
-    # Fetch before opening so authentication/network failures cannot truncate a file.
-    # Exclusive creation also protects against a file appearing during the fetch.
-    with open(
-        path,
-        "wb" if overwrite else "xb",
-        opener=lambda name, flags: os.open(name, flags, 0o600),
-    ) as output:
-        output.write(data)
+    temporary_path = None
+    try:
+        # Same-directory staging permits atomic publication on one filesystem.
+        # NamedTemporaryFile creates private files (0600 on POSIX).
+        with tempfile.NamedTemporaryFile(
+            mode="wb", prefix=".msmail-export-", suffix=".tmp", dir=path.parent, delete=False,
+        ) as output:
+            temporary_path = Path(output.name)
+            output.write(data)
+            output.flush()
+            os.fsync(output.fileno())
+        if overwrite:
+            os.replace(temporary_path, path)
+        else:
+            # Unlike rename/replace, link fails if another writer created the
+            # destination meanwhile. Never fall back to a non-atomic copy.
+            os.link(temporary_path, path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
     return ExportMessageResult(account=account, id=message_id, path=str(path), size=len(data))
 
 

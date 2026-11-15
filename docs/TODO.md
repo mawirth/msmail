@@ -3,19 +3,6 @@
 Remaining findings from the reviews, updated on 2026-11-15, plus decisions
 worth not re-litigating. Items are roughly ordered by value within each group.
 
-## Correctness
-
-**Make EML overwrite atomic.** `export_message` downloads before opening the
-destination, protecting existing files from network failures. With `--overwrite`,
-however, a disk-full/write failure can leave a truncated destination. A temporary
-file in the destination directory followed by replacement would protect archives
-against this as well; exclusive creation must remain safe for non-overwrite mode.
-
-**`list_folders` recurses without a depth limit.** `core/mail.py` walks
-`childFolders` for every folder reporting children. A deeply nested or
-self-referential structure would recurse until Python's stack limit. A depth cap
-with a warning would be enough.
-
 ## Security
 
 **`--encrypt` together with `Bcc` discloses that further recipients exist.**
@@ -46,10 +33,17 @@ operation with no preview. Documented in the README.
 
 ## Deferred
 
+- Additional folder traversal guards are deferred. Exchange Online already
+  limits hierarchy depth; no concrete failure was found. Any future guard must
+  preserve valid server hierarchies and explicitly report incomplete results.
 - CI and lint configuration will be considered separately; this cleanup does
   not introduce workflows or additional tooling dependencies.
 
 ## Decided, not open
+
+- EML exports are staged privately in the destination directory and synced before
+  publication. Replacement is atomic; non-overwrite publication uses an exclusive
+  hard link. Write/sync/publication failures and concurrent destinations are tested.
 
 - **November 15 review:** local EML reading reuses the existing mail display
   model and MIME/S/MIME helpers. No separate Orbit mail parser is needed.

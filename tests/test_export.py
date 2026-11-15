@@ -1,4 +1,5 @@
 import json
+import errno
 import os
 from types import SimpleNamespace
 
@@ -136,3 +137,84 @@ def test_export_smime_is_not_transformed(mailbox, monkeypatch, tmp_path, content
     destination = tmp_path / "smime.eml"
     mail.export_message("1", destination=str(destination))
     assert destination.read_bytes() == data
+
+
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("failure", ["write", "sync", "publish"])
+def test_export_failures_preserve_old_file_and_remove_temporary_data(mailbox, monkeypatch, tmp_path, existing, failure):
+    destination = tmp_path / "message.eml"
+    if existing:
+        destination.write_bytes(b"existing")
+
+    def fail(*args, **kwargs):
+        raise OSError(errno.ENOSPC, "Synthetic disk full")
+
+    if failure == "write":
+        original = mail.tempfile.NamedTemporaryFile
+
+        def temporary(**kwargs):
+            output = original(**kwargs)
+            write = output.write
+
+            def partial_write(data):
+                write(data[:10])
+                output.flush()
+                fail()
+
+            output.write = partial_write
+            return output
+
+        monkeypatch.setattr(mail.tempfile, "NamedTemporaryFile", temporary)
+    else:
+        operation = "fsync" if failure == "sync" else "replace" if existing else "link"
+        monkeypatch.setattr(mail.os, operation, fail)
+
+    args = ["export", "1", "--to", str(destination)] + (["--overwrite"] if existing else [])
+    result = runner.invoke(app, args)
+    assert result.exit_code == 1, result.output
+    assert "Synthetic disk full" in result.output
+    if existing:
+        assert destination.read_bytes() == b"existing"
+    else:
+        assert not destination.exists()
+    assert sorted(p.name for p in tmp_path.iterdir()) == (["message.eml"] if existing else [])
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_export_publishes_only_after_complete_private_file_is_synced(mailbox, monkeypatch, tmp_path, existing):
+    destination = tmp_path / "message.eml"
+    if existing:
+        destination.write_bytes(b"existing")
+    sync = mail.os.fsync
+    seen = []
+
+    def inspect(descriptor):
+        staged = list(tmp_path.glob(".msmail-export-*.tmp"))
+        assert len(staged) == 1
+        assert staged[0].read_bytes() == MIME
+        if os.name == "posix":
+            assert os.fstat(descriptor).st_mode & 0o777 == 0o600
+        assert destination.read_bytes() == b"existing" if existing else not destination.exists()
+        seen.append(True)
+        sync(descriptor)
+
+    monkeypatch.setattr(mail.os, "fsync", inspect)
+    mail.export_message("1", destination=str(destination), overwrite=existing)
+    assert seen == [True]
+    assert destination.read_bytes() == MIME
+    assert list(tmp_path.iterdir()) == [destination]
+
+
+def test_export_refuses_destination_created_just_before_publication(mailbox, monkeypatch, tmp_path):
+    destination = tmp_path / "message.eml"
+    link = mail.os.link
+
+    def race(source, target):
+        destination.write_bytes(b"concurrent export")
+        link(source, target)
+
+    monkeypatch.setattr(mail.os, "link", race)
+    result = runner.invoke(app, ["export", "1", "--to", str(destination)])
+    assert result.exit_code == 1
+    assert destination.read_bytes() == b"concurrent export"
+    assert list(tmp_path.iterdir()) == [destination]

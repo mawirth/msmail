@@ -247,7 +247,12 @@ client can do that when opening the file. See [S/MIME export](docs/SMIME.md#expo
 
 `--to` requires a filename in an existing directory. Existing files are refused
 unless `--overwrite` is given. New files are created with owner-only permissions
-on POSIX. `--json` reports the account, message ID, absolute path and byte size.
+on POSIX, including replacements. The complete export is written and synchronized
+in a private temporary file beside the destination before it is published
+atomically. Write failures preserve an existing destination; without
+`--overwrite`, a concurrently created destination is also preserved. Filesystems
+must support atomic replacement and, for non-overwrite exports, hard links.
+`--json` reports the account, message ID, absolute path and byte size.
 
 ## Reading Local EML Files
 
