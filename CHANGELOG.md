@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Read local EML files with `read --file`, without mailbox access or list-cache
+  changes. Preserve the source bytes and report local identity/date provenance
+  explicitly. Support HTML, attachment metadata, S/MIME verification and decryption.
+- Provide printable local `rendered_body` without terminal controls; share MIME
+  charset, body selection and SafeLinks handling with mailbox reading.
+- Distinguish signature validity from certificate trust in S/MIME results, and
+  display opaque signed content without implicitly trusting it.
+
 - Add independent `list/search --page-json` pagination with opaque `--cursor`
   continuation, pinned accounts and unchanged message JSON fields. This mode
   leaves `last-list.json` untouched, validates cursor destinations and rejects

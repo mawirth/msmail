@@ -181,6 +181,12 @@ Export does not need your local S/MIME key and does not offer `--decrypt` or
 `--verify-smime`. To decrypt or verify within msmail, use `read` with those flags.
 Existing files are preserved unless you explicitly pass `--overwrite`.
 
+Exported files can be read offline with `msmail read --file message.eml`.
+`--verify-smime` and `--decrypt --account you@example.com` work on these files
+without Graph authentication. JSON now also distinguishes `signature_valid`
+from `certificate_trusted`; `verified` and `trusted` retain their existing
+meaning. See [LOCAL_EML.md](LOCAL_EML.md) for examples and the state definitions.
+
 ## Temporary Files
 
 OpenSSL operations use private temporary directories below `/tmp` by default.

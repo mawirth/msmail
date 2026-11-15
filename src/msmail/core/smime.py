@@ -11,6 +11,7 @@ import tempfile
 from typing import Iterator, Optional
 
 from msmail.core import auth
+from msmail.core import mime
 from msmail.core.errors import MsmailError
 
 
@@ -84,6 +85,8 @@ class VerifyResult:
     error: str | None = None
     data: bytes | None = None
     sender_matches: bool | None = None
+    signature_valid: bool | None = None
+    certificate_trusted: bool | None = None
 
     @property
     def trusted(self) -> bool:
@@ -700,20 +703,34 @@ def verify_signed_mime(
     return str(verified_path)
 
 
+def extract_signed_content(mime_bytes: bytes) -> bytes:
+    """Unpack an opaque signature for display, without asserting validity/trust."""
+    with _managed_working_dir(None, TEMP_PREFIX + "extract-") as (directory, _owned):
+        source = directory / "signed.eml"
+        target = directory / "content.eml"
+        source.write_bytes(mime_bytes)
+        _run_openssl_file([
+            "smime", "-verify", "-nosigs", "-noverify",
+            "-in", str(source), "-out", str(target),
+        ])
+        return target.read_bytes()
+
+
 def verify_signed_mime_bytes(
     mime_bytes: bytes,
     *,
     account_email: Optional[str] = None,
     output_dir: Optional[str] = None,
     expected_sender: Optional[str] = None,
+    system_trust_only: bool = False,
 ) -> VerifyResult:
-    _account, paths = verification_material(account_email)
+    paths = None if system_trust_only else verification_material(account_email)[1]
     with _managed_working_dir(output_dir, TEMP_PREFIX + "verify-") as (directory, owned):
         signed_path = directory / "incoming.eml"
         verified_path = directory / "verified.eml"
         signer_path = directory / "signer.pem"
         signed_path.write_bytes(mime_bytes)
-        trust_bundle = _trust_bundle(paths, directory)
+        trust_bundle = _trust_bundle(paths, directory) if paths is not None else None
         trust_arguments = ["-CAfile", str(trust_bundle)] if trust_bundle else []
 
         def reported_signer() -> str | None:
@@ -722,30 +739,29 @@ def verify_signed_mime_bytes(
             return str(signer_path)
 
         reported_verified = "" if owned else str(verified_path)
+        verified = True
+        verification_error = None
+        arguments = [
+            "smime", "-verify", "-in", str(signed_path),
+            "-signer", str(signer_path), "-out", str(verified_path),
+        ]
         try:
-            _run_openssl_file(
-                [
-                    "smime",
-                    "-verify",
-                    "-in",
-                    str(signed_path),
-                    *trust_arguments,
-                    "-signer",
-                    str(signer_path),
-                    "-out",
-                    str(verified_path),
-                ]
-            )
+            _run_openssl_file(arguments + trust_arguments)
         except ValueError as exc:
-            return VerifyResult(
-                verified=False,
-                signed=b"multipart/signed" in mime_bytes.lower()
-                or b"application/pkcs7-signature" in mime_bytes.lower()
-                or b"application/x-pkcs7-signature" in mime_bytes.lower(),
-                verified_path=reported_verified,
-                signer_path=reported_signer(),
-                error=str(exc),
-            )
+            verified = False
+            verification_error = str(exc)
+            # Distinguish a valid signature with an untrusted certificate from
+            # damaged content. -noverify skips certificate trust, never signatures.
+            try:
+                _run_openssl_file(arguments + ["-noverify"])
+            except ValueError:
+                signed, _encrypted = mime.smime_flags(mime.parse_message(mime_bytes))
+                return VerifyResult(
+                    verified=False, signed=bool(signed),
+                    signature_valid=False if signed else None,
+                    verified_path=reported_verified, signer_path=reported_signer(),
+                    error=verification_error,
+                )
 
         # Read the signer certificate before the directory is discarded.
         signer_info = certificate_info(signer_path) if signer_path.exists() else None
@@ -758,14 +774,16 @@ def verify_signed_mime_bytes(
             if not sender_matches:
                 sender_error = "S/MIME signer certificate does not match the message's From address."
         return VerifyResult(
-            verified=True,
+            verified=verified,
             signed=True,
             verified_path=reported_verified,
             signer_path=reported_signer(),
             signer_certificate=signer_info,
             data=verified_path.read_bytes(),
             sender_matches=sender_matches,
-            error=sender_error,
+            error=verification_error or sender_error,
+            signature_valid=True,
+            certificate_trusted=verified,
         )
 
 

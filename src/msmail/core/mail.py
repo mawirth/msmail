@@ -53,7 +53,7 @@ class MessageSummary:
 
 @dataclass(frozen=True)
 class AttachmentInfo:
-    id: str
+    id: Optional[str]
     name: str
     content_type: str
     size: int
@@ -66,14 +66,14 @@ class AttachmentInfo:
 
 @dataclass(frozen=True)
 class MessageDetail:
-    account: str
-    id: str
+    account: Optional[str]
+    id: Optional[str]
     subject: str
     from_name: str
     from_address: str
     to_addresses: list[str]
     cc_addresses: list[str]
-    received_date_time: str
+    received_date_time: Optional[str]
     internet_message_id: str
     body_content_type: str
     body_content: str

@@ -249,6 +249,31 @@ client can do that when opening the file. See [S/MIME export](docs/SMIME.md#expo
 unless `--overwrite` is given. New files are created with owner-only permissions
 on POSIX. `--json` reports the account, message ID, absolute path and byte size.
 
+## Reading Local EML Files
+
+```sh
+msmail read --file archived.eml
+msmail read --file archived.eml --json
+msmail read --file archived.eml --verify-smime
+msmail read --file archived.eml --decrypt --verify-smime --account you@example.com
+```
+
+`--file` replaces the list index or `--id`. Reading uses no mailbox connection,
+login or list cache and leaves the source file unchanged. The same MIME,
+HTML-to-text, SafeLinks and S/MIME processing is used as for mailbox messages.
+`--html` and `--attachment-details` work with local files too.
+
+Local JSON keeps `id`, `account` and `received_date_time` as `null`. The EML
+Message-ID is `internet_message_id`; its Date header is reported separately as
+`date_header` and, when parseable, `sent_date_time`. It is not a receipt timestamp.
+`rendered_body` provides plain text without terminal controls, including with
+local `--html --json`; the selected raw body remains in `body_content`.
+
+Without `--account`, local signature verification uses the system trust store.
+Decryption requires an explicit account selecting local certificate/key material;
+this does not authenticate or establish which mailbox the EML came from.
+See [local EML reading and JSON](docs/LOCAL_EML.md) for the full contract.
+
 ## Writing Mail
 
 Create a draft from options, from a file, or in your editor:

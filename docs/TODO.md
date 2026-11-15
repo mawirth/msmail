@@ -1,9 +1,15 @@
 # Open Items
 
-Remaining findings from the reviews, updated on 2026-10-25, plus decisions
+Remaining findings from the reviews, updated on 2026-11-15, plus decisions
 worth not re-litigating. Items are roughly ordered by value within each group.
 
 ## Correctness
+
+**Make EML overwrite atomic.** `export_message` downloads before opening the
+destination, protecting existing files from network failures. With `--overwrite`,
+however, a disk-full/write failure can leave a truncated destination. A temporary
+file in the destination directory followed by replacement would protect archives
+against this as well; exclusive creation must remain safe for non-overwrite mode.
 
 **`list_folders` recurses without a depth limit.** `core/mail.py` walks
 `childFolders` for every folder reporting children. A deeply nested or
@@ -26,6 +32,11 @@ README for now.
 
 ## Interface
 
+**Use distinct release versions for shipped changes.** The public package still
+reports `0.1.0` across substantial updates. This obscures which code an Orbit
+installation runs and complicates pipx update verification. Introduce a release
+version/tag policy and a scriptable version command before further distribution.
+
 **`draft create` has no `--cc` or `--bcc`.** Only `send` has them; for a draft
 you need a compose file. Asymmetric and easy to trip over.
 
@@ -39,6 +50,12 @@ operation with no preview. Documented in the README.
   not introduce workflows or additional tooling dependencies.
 
 ## Decided, not open
+
+- **November 15 review:** local EML reading reuses the existing mail display
+  model and MIME/S/MIME helpers. No separate Orbit mail parser is needed.
+  S/MIME signature validity and certificate trust are reported separately;
+  terminal control sequences are removed from prepared read output. Source
+  headers do not manufacture Graph IDs, mailbox ownership or receipt dates.
 
 - **October 25 follow-up:** editor buffers survive failed server operations;
   explicit IDs bypass range parsing. Attachment listing/saving follows all

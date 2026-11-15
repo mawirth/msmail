@@ -12,6 +12,21 @@ SAFELINK_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Strip terminal control sequences from untrusted mail before display/printing.
+_TERMINAL_ESCAPE = re.compile(
+    r"(?:\x1b\][^\x07\x1b]*(?:\x07|\x1b\\|$))"
+    r"|(?:\x1b\[[0-?]*[ -/]*[@-~])"
+    r"|(?:\x1b[PX^_].*?(?:\x1b\\|$))"
+    r"|(?:\x9b[0-?]*[ -/]*[@-~])"
+    r"|(?:\x1b[@-_])",
+    re.DOTALL,
+)
+
+
+def display_text(value: str) -> str:
+    text = _TERMINAL_ESCAPE.sub("", value)
+    return "".join(c for c in text if c in "\n\r\t" or not (ord(c) < 32 or 127 <= ord(c) <= 159))
+
 
 def unwrap_safelink(url: str) -> str:
     parsed = parse.urlparse(html.unescape(url))

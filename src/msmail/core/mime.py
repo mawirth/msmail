@@ -22,7 +22,7 @@ def _decode_part(part: Message) -> str:
 
 
 def _find_body_part(message: Message, preferred_type: str) -> Message | None:
-    if message.get_content_disposition() == "attachment":
+    if message.get_content_disposition() == "attachment" or message.get_content_maintype() == "message":
         return None
     if message.get_content_type().lower() == "multipart/signed":
         payload = message.get_payload()
@@ -54,24 +54,40 @@ def parse_message(mime_bytes: bytes) -> Message:
     return BytesParser(policy=policy.default).parsebytes(mime_bytes)
 
 
-def body_from_mime(mime_bytes: bytes, raw_html: bool) -> tuple[str, str, list[str]]:
-    parsed = parse_message(mime_bytes)
-    preferred, fallback = ("text/html", "text/plain") if raw_html else ("text/plain", "text/html")
+def body_content(parsed: Message, prefer_html: bool = False) -> tuple[str, str]:
+    preferred, fallback = ("text/html", "text/plain") if prefer_html else ("text/plain", "text/html")
     body_part = _find_body_part(parsed, preferred)
     if body_part is None:
         body_part = _find_body_part(parsed, fallback)
     if body_part is None:
-        return "", "text", attachment_names(parsed)
+        return "", "text"
+    return _decode_part(body_part), body_part.get_content_subtype().lower()
 
-    content_type = body_part.get_content_type().lower()
-    content = _decode_part(body_part)
+
+def body_from_mime(mime_bytes: bytes, raw_html: bool) -> tuple[str, str, list[str]]:
+    parsed = parse_message(mime_bytes)
+    content, content_type = body_content(parsed, prefer_html=raw_html)
     if raw_html:
         rendered = content
-    elif content_type == "text/html":
+    elif content_type == "html":
         rendered = render.html_to_text(content)
     else:
         rendered = render.unwrap_safelinks_in_text(content)
-    return rendered, content_type.removeprefix("text/") or "text", attachment_names(parsed)
+    return rendered, content_type, attachment_names(parsed)
+
+
+def smime_flags(message: Message) -> tuple[bool | None, bool]:
+    """Inspect the message envelope, not signatures inside attached emails."""
+    content_type = message.get_content_type().lower()
+    if content_type == "multipart/signed":
+        return True, False
+    if content_type in {"application/pkcs7-mime", "application/x-pkcs7-mime"}:
+        smime_type = (message.get_param("smime-type") or "").lower()
+        if smime_type == "signed-data":
+            return True, False
+        if smime_type != "certs-only":
+            return None, True  # A signature inside the encrypted envelope is unknown.
+    return False, False
 
 
 def attachment_names(message: Message) -> list[str]:

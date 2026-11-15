@@ -97,6 +97,14 @@ filename selection and file output. Graph adapters provide base64 text, MIME
 adapters provide bytes, and unsupported attachments have `data=None`; empty
 strings and empty bytes are valid files.
 
+`core/eml.py` adapts local files to `MessageDetail`, with explicit source/date
+metadata and nullable mailbox IDs/account/receipt time. `commands/read.py` then
+uses the shared rendering and S/MIME output path. Do not resolve a mailbox
+reference or acquire credentials for this source. Local `rendered_body` is
+printable plain text even with `--html`; `body_content` retains selected markup.
+`VerifyResult.signature_valid` and `certificate_trusted` supplement the existing
+combined `verified`/`trusted` checks; never weaken attachment-saving trust rules.
+
 ## State Model
 
 Runtime state is intentionally outside the repository:
